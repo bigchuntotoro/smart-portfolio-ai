@@ -1,125 +1,360 @@
-import streamlit as st
-import os
 import pandas as pd
 import plotly.express as px
-
+import streamlit as st
 from dotenv import load_dotenv
 
-# ✅ 환경변수 로드
-
-load_dotenv()
-
-if not os.getenv("OPENAI_API_KEY"):
-    st.warning("❌ OPENAI_API_KEY 없음 (.env 확인 필요)")
-
+from src.api.etf_api import ETFData
 from src.core.portfolio import analyze_portfolio
 from src.core.recommender import recommend
 from src.utils.simulator import simulate
-from src.ai.advisor import get_advice
 
-st.set_page_config(page_title="자산 관리 AI", layout="wide")
 
-st.title("💰 Smart Portfolio AI")
+# ========================================
+# 환경변수
+# ========================================
 
-# ------------------------
+load_dotenv()
 
-# 입력
+st.set_page_config(
+    page_title="자산 관리 AI PRO",
+    layout="wide"
+)
 
-# ------------------------
+st.title("💰 Smart Portfolio AI PRO")
 
-age = st.number_input("나이", value=54)
-cash = st.number_input("현금", value=280000000)
-monthly = st.number_input("월 저축", value=3000000)
-etf_amount = st.number_input("ETF 금액", value=80000000)
+
+# ========================================
+# 입력 영역
+# ========================================
+
+st.sidebar.header("📥 입력")
+
+age = st.sidebar.number_input(
+    "나이",
+    value=54
+)
+
+cash = st.sidebar.number_input(
+    "현금",
+    value=280000000
+)
+
+monthly_etf = st.sidebar.number_input(
+    "ETF 월 투자",
+    value=1500000
+)
+
+monthly_bond = st.sidebar.number_input(
+    "채권 월 투자",
+    value=1000000
+)
+
+monthly_pension = st.sidebar.number_input(
+    "연금(IRP/연금저축)",
+    value=500000
+)
+
+etf_amount = st.sidebar.number_input(
+    "현재 ETF 금액",
+    value=80000000
+)
+
+bond_amount = st.sidebar.number_input(
+    "현재 채권 금액",
+    value=50000000
+)
+
+pension_amount = st.sidebar.number_input(
+    "현재 연금 금액",
+    value=30000000
+)
+
+
+# ========================================
+# ETF 데이터 불러오기
+# ========================================
+
+try:
+    etf_api = ETFData()
+    etfs = etf_api.get_etfs()
+
+except Exception as e:
+    st.error(
+        f"ETF 데이터를 불러오는 중 오류가 발생했습니다: {e}"
+    )
+    st.stop()
+
+
+if not etfs:
+    st.error("ETF 데이터를 불러올 수 없습니다.")
+    st.stop()
+
+
+# ========================================
+# ETF 선택
+# ========================================
+
+selected_etf = st.sidebar.selectbox(
+    "ETF 선택",
+    etfs,
+    format_func=lambda x: x.get(
+        "name",
+        "Unknown ETF"
+    )
+)
+
+
+# ========================================
+# 선택 ETF 안전 보정
+# ========================================
+
+selected_etf = selected_etf or {}
+
+etf_name = selected_etf.get(
+    "name",
+    "Unknown ETF"
+)
+
+etf_return = float(
+    selected_etf.get(
+        "return_1y",
+        5.0
+    )
+)
+
+etf_risk = int(
+    selected_etf.get(
+        "risk",
+        3
+    )
+)
+
+
+# ========================================
+# 선택 ETF 표시
+# ========================================
+
+st.write("### 📌 선택 ETF")
+
+st.write(
+    {
+        "name": etf_name,
+        "return_1y": etf_return,
+        "risk": etf_risk,
+    }
+)
+
+
+# ========================================
+# 포트폴리오 데이터 구성
+# ========================================
 
 data = {
-"age": age,
-"cash": cash,
-"products": [
-{"type": "ETF", "amount": etf_amount}
-]
+    "age": age,
+    "cash": cash,
+    "products": [
+        {
+            "type": "ETF",
+            "name": etf_name,
+            "amount": etf_amount,
+            "return": etf_return,
+            "risk": etf_risk,
+        },
+        {
+            "type": "채권",
+            "name": "국공채",
+            "amount": bond_amount,
+            "return": 3.0,
+            "risk": 1,
+        },
+        {
+            "type": "연금",
+            "name": "IRP/연금저축",
+            "amount": pension_amount,
+            "return": 5.0,
+            "risk": 2,
+        },
+    ],
 }
 
-# ------------------------
 
-# 실행
+# ========================================
+# 포트폴리오 분석
+# ========================================
 
-# ------------------------
+if st.button("🚀 분석 시작"):
 
-if st.button("분석하기"):
+    try:
+        result = analyze_portfolio(data)
+        rec = recommend(data)
 
-    result = analyze_portfolio(data)
-    rec = recommend(data)
+        st.subheader("📊 포트폴리오 분석")
+        st.write(result)
 
-    st.subheader("📊 포트폴리오 분석")
-    st.write(result)
+        st.subheader("📌 추천 전략")
+        st.write(rec)
 
-    st.subheader("📌 추천 투자")
-    st.write(rec)
+    except Exception as e:
+        st.error(
+            f"분석 중 오류 발생: {e}"
+        )
 
-    # ------------------------
-    # 📈 미래 자산 (라인 그래프)
-    # ------------------------
-    st.subheader("📈 미래 자산 성장")
 
-    years = list(range(1, 11))
-    values = [simulate(i, monthly, 0.05) for i in years]
+# ========================================
+# 자산 성장
+# ========================================
 
-    df_growth = pd.DataFrame({
+st.subheader("📈 10년 자산 성장")
+
+etf_r = etf_return / 100
+bond_r = 0.03
+pension_r = 0.05
+
+years = list(range(1, 11))
+values = []
+
+total = (
+    cash
+    + etf_amount
+    + bond_amount
+    + pension_amount
+)
+
+
+for y in years:
+
+    etf_val = simulate(
+        y,
+        monthly_etf,
+        etf_r
+    )
+
+    bond_val = simulate(
+        y,
+        monthly_bond,
+        bond_r
+    )
+
+    pension_val = simulate(
+        y,
+        monthly_pension,
+        pension_r
+    )
+
+    total_future = (
+        total
+        + etf_val
+        + bond_val
+        + pension_val
+    )
+
+    values.append(total_future)
+
+
+df = pd.DataFrame(
+    {
         "연도": years,
-        "자산": values
-    })
+        "총 자산": values,
+    }
+)
 
-    fig_line = px.line(
-        df_growth,
-        x="연도",
-        y="자산",
-        markers=True,
-        title="10년 자산 성장 시뮬레이션"
+
+fig = px.line(
+    df,
+    x="연도",
+    y="총 자산",
+    markers=True
+)
+
+st.plotly_chart(
+    fig,
+    use_container_width=True
+)
+
+
+# ========================================
+# 자산 비율
+# ========================================
+
+st.subheader("📊 자산 비율")
+
+df_pie = pd.DataFrame(
+    {
+        "자산": [
+            "현금",
+            "ETF",
+            "채권",
+            "연금",
+        ],
+        "금액": [
+            cash,
+            etf_amount,
+            bond_amount,
+            pension_amount,
+        ],
+    }
+)
+
+
+fig_pie = px.pie(
+    df_pie,
+    names="자산",
+    values="금액",
+    hole=0.4
+)
+
+st.plotly_chart(
+    fig_pie,
+    use_container_width=True
+)
+
+
+# ========================================
+# 리스크 점수
+# ========================================
+
+st.subheader("⚠️ 포트폴리오 리스크")
+
+total_amount = (
+    etf_amount
+    + bond_amount
+    + pension_amount
+)
+
+
+if total_amount == 0:
+
+    risk_score = 0
+
+else:
+
+    risk_score = (
+        etf_amount * etf_risk
+        + bond_amount * 1
+        + pension_amount * 2
+    ) / total_amount
+
+
+st.metric(
+    "리스크 점수",
+    round(risk_score, 2)
+)
+
+
+if risk_score > 4:
+
+    st.error(
+        "⚠️ 공격적 포트폴리오"
     )
 
-    fig_line.update_layout(
-        xaxis_title="연도",
-        yaxis_title="자산 (원)"
+elif risk_score > 2:
+
+    st.warning(
+        "⚖️ 중립 포트폴리오"
     )
 
-    st.plotly_chart(fig_line, use_container_width=True)
+else:
 
-    # ------------------------
-    # 📊 자산 비율 (도넛 차트)
-    # ------------------------
-    st.subheader("📊 자산 비율")
-
-    df_pie = pd.DataFrame({
-        "자산": ["현금", "ETF"],
-        "금액": [cash, etf_amount]
-    })
-
-    fig_pie = px.pie(
-        df_pie,
-        names="자산",
-        values="금액",
-        hole=0.4  # 도넛 스타일
+    st.success(
+        "✅ 안정형 포트폴리오"
     )
-
-    fig_pie.update_traces(
-        textinfo="percent+label",
-        hovertemplate="<b>%{label}</b><br>금액: %{value:,}원<br>비율: %{percent}"
-    )
-
-    st.plotly_chart(fig_pie, use_container_width=True)
-
-    # ------------------------
-    # 🤖 AI 설명
-    # ------------------------
-    st.subheader("🤖 AI 조언")
-
-    if not os.getenv("OPENAI_API_KEY"):
-        st.warning("API 키 필요")
-    else:
-        try:
-            advice = get_advice(result)
-            st.write(advice)
-        except Exception as e:
-            st.error(f"AI 오류: {e}")
-
