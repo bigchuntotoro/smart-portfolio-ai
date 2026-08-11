@@ -10,6 +10,7 @@ from src.core.portfolio import analyze_portfolio
 from src.core.recommender import recommend
 from src.utils.simulator import simulate
 
+
 # =========================================================
 # 금액 입력 함수
 # =========================================================
@@ -37,6 +38,7 @@ def money_input(label, default):
         st.session_state[label] = f"{value:,}"
 
     except ValueError:
+
         value = default
 
         st.sidebar.warning(
@@ -66,12 +68,10 @@ def show_dashboard():
         """
         <style>
 
-        /* 전체 배경 */
         .stApp {
             background-color: #0e1117;
         }
 
-        /* Metric 카드 */
         [data-testid="stMetric"] {
             background: rgba(255, 255, 255, 0.03);
             border: 1px solid rgba(255, 255, 255, 0.08);
@@ -91,7 +91,6 @@ def show_dashboard():
             color: #4fc3f7 !important;
         }
 
-        /* 카드 */
         .css-card {
             background: rgba(255, 255, 255, 0.02);
             border: 1px solid rgba(255, 255, 255, 0.05);
@@ -100,7 +99,6 @@ def show_dashboard():
             margin-bottom: 20px;
         }
 
-        /* 버튼 */
         .stButton > button {
             width: 100%;
             border-radius: 8px;
@@ -114,29 +112,18 @@ def show_dashboard():
     )
 
     # =====================================================
-    # 3. 로그인 사용자 정보
+    # 3. JWT 로그인 사용자 정보
     # =====================================================
 
-    user = st.session_state.get("user")
+    user_id = st.session_state.get("user_id")
+    username = st.session_state.get("login_user")
 
-    if not user:
-        st.warning("로그인이 필요합니다.")
+    # app.py에서 이미 JWT 인증을 완료했으므로
+    # Dashboard에서는 st.session_state.user를 사용하지 않습니다.
 
-        if st.button("로그인 화면으로 이동"):
-            st.rerun()
-
+    if not username or user_id is None:
+        st.error("사용자 인증 정보를 확인할 수 없습니다.")
         return
-
-    # 사용자 정보가 dict인 경우
-    if isinstance(user, dict):
-        username = (
-            user.get("username")
-            or user.get("user_id")
-            or user.get("name")
-            or "사용자"
-        )
-    else:
-        username = str(user)
 
     # =====================================================
     # 4. 상단 헤더
@@ -155,27 +142,9 @@ def show_dashboard():
 
     with header_col2:
 
-        if st.button("🚪 로그아웃", type="secondary"):
-
-            st.session_state.user = None
-
-            # 기존 Dashboard 입력값 제거
-            keys_to_remove = [
-                "현금",
-                "현재 ETF 금액",
-                "현재 채권 금액",
-                "현재 연금 금액",
-                "ETF 월 투자",
-                "채권 월 투자",
-                "연금 월 투자",
-            ]
-
-            for key in keys_to_remove:
-
-                if key in st.session_state:
-                    del st.session_state[key]
-
-            st.rerun()
+        # 여기서는 로그아웃 버튼을 만들지 않습니다.
+        # 로그아웃은 app.py의 사이드바에서 처리합니다.
+        pass
 
     st.divider()
 
@@ -394,7 +363,7 @@ def show_dashboard():
     }
 
     # =====================================================
-    # 11. 메인 Tabs
+    # 11. Main Tabs
     # =====================================================
 
     tab1, tab2, tab3 = st.tabs(
@@ -411,13 +380,7 @@ def show_dashboard():
 
     with tab1:
 
-        c1, c2 = st.columns(
-            [1, 1]
-        )
-
-        # -------------------------------------------------
-        # 자산 비중
-        # -------------------------------------------------
+        c1, c2 = st.columns([1, 1])
 
         with c1:
 
@@ -474,10 +437,6 @@ def show_dashboard():
                 use_container_width=True,
             )
 
-        # -------------------------------------------------
-        # 자산 세부 내역
-        # -------------------------------------------------
-
         with c2:
 
             st.subheader(
@@ -528,10 +487,6 @@ def show_dashboard():
         col_ai, col_risk = st.columns(
             [1.2, 0.8]
         )
-
-        # -------------------------------------------------
-        # AI 분석
-        # -------------------------------------------------
 
         with col_ai:
 
@@ -592,10 +547,6 @@ def show_dashboard():
                     "포트폴리오의 진단 결과를 생성합니다."
                 )
 
-        # -------------------------------------------------
-        # 리스크 분석
-        # -------------------------------------------------
-
         with col_risk:
 
             st.subheader(
@@ -620,10 +571,6 @@ def show_dashboard():
                     + pension_amount * 2
                 ) / total_invested
 
-            # -------------------------------------------------
-            # 리스크 상태
-            # -------------------------------------------------
-
             if risk_score > 4:
 
                 status_text = "공격투자형 🚨"
@@ -638,10 +585,6 @@ def show_dashboard():
 
                 status_text = "안정지향형 ✅"
                 status_color = "#66bb6a"
-
-            # -------------------------------------------------
-            # Gauge
-            # -------------------------------------------------
 
             fig_gauge = go.Figure(
                 go.Indicator(
@@ -716,20 +659,12 @@ def show_dashboard():
         )
 
         etf_r = etf_return / 100
-
         bond_r = 0.03
-
         pension_r = 0.05
 
-        years = list(
-            range(1, 11)
-        )
+        years = list(range(1, 11))
 
         values = []
-
-        # -------------------------------------------------
-        # 10년 시뮬레이션
-        # -------------------------------------------------
 
         for y in years:
 
@@ -762,10 +697,6 @@ def show_dashboard():
                 total_future
             )
 
-        # -------------------------------------------------
-        # DataFrame
-        # -------------------------------------------------
-
         df_sim = pd.DataFrame(
             {
                 "연도": [
@@ -775,10 +706,6 @@ def show_dashboard():
                 "예상 총 자산": values,
             }
         )
-
-        # -------------------------------------------------
-        # Line Chart
-        # -------------------------------------------------
 
         fig_line = px.line(
             df_sim,
@@ -811,10 +738,6 @@ def show_dashboard():
             fig_line,
             use_container_width=True,
         )
-
-        # -------------------------------------------------
-        # 시뮬레이션 표
-        # -------------------------------------------------
 
         st.dataframe(
             df_sim,

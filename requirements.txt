@@ -3,3 +3,5 @@ pandas
 matplotlib
 python-dotenv
 openai
+PyJWT
+bcrypt
