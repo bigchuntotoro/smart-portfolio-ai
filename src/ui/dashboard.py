@@ -9,40 +9,49 @@ from src.api.etf_api import ETFData
 from src.core.portfolio import analyze_portfolio
 from src.core.recommender import recommend
 from src.utils.simulator import simulate
-
+from src.db.portfolio_dao import (
+    get_portfolio,
+    save_portfolio,
+)
 
 # =========================================================
 # 금액 입력 함수
 # =========================================================
 
 def money_input(label, default):
-    """
-    콤마가 포함된 금액을 입력받는 함수
-    예: 280,000,000
-    """
 
     if label not in st.session_state:
-        st.session_state[label] = f"{default:,}"
+
+        st.session_state[label] = (
+            f"{default:,}"
+        )
 
     raw = st.sidebar.text_input(
         label,
         st.session_state[label],
+        key=f"money_{label}",
     )
 
     try:
-        value = int(raw.replace(",", ""))
+
+        value = int(
+            raw.replace(",", "")
+        )
 
         if value < 0:
             raise ValueError
 
-        st.session_state[label] = f"{value:,}"
+        st.session_state[label] = (
+            f"{value:,}"
+        )
 
     except ValueError:
 
         value = default
 
         st.sidebar.warning(
-            f"⚠️ {label}: 올바른 금액을 입력해주세요."
+            f"⚠️ {label}: "
+            "올바른 금액을 입력해주세요."
         )
 
     return value
@@ -118,12 +127,115 @@ def show_dashboard():
     user_id = st.session_state.get("user_id")
     username = st.session_state.get("login_user")
 
-    # app.py에서 이미 JWT 인증을 완료했으므로
-    # Dashboard에서는 st.session_state.user를 사용하지 않습니다.
+    if not user_id or not username:
+        st.error(
+            "사용자 인증 정보를 확인할 수 없습니다."
+        )
 
-    if not username or user_id is None:
-        st.error("사용자 인증 정보를 확인할 수 없습니다.")
         return
+
+    # =====================================================
+    # 회원별 포트폴리오 자동 복원
+    # =====================================================
+
+    loaded_user_id = st.session_state.get(
+        "portfolio_loaded_user_id"
+    )
+
+    if loaded_user_id != user_id:
+
+        portfolio = get_portfolio(user_id)
+
+        if portfolio:
+
+            # -----------------------------
+            # DB 포트폴리오 복원
+            # -----------------------------
+
+            st.session_state["age"] = (
+                portfolio["age"]
+            )
+
+            st.session_state["현금"] = (
+                f'{portfolio["cash"]:,}'
+            )
+
+            st.session_state["현재 ETF 금액"] = (
+                f'{portfolio["etf_amount"]:,}'
+            )
+
+            st.session_state["현재 채권 금액"] = (
+                f'{portfolio["bond_amount"]:,}'
+            )
+
+            st.session_state["현재 연금 금액"] = (
+                f'{portfolio["pension_amount"]:,}'
+            )
+
+            st.session_state["ETF 월 투자"] = (
+                f'{portfolio["monthly_etf"]:,}'
+            )
+
+            st.session_state["채권 월 투자"] = (
+                f'{portfolio["monthly_bond"]:,}'
+            )
+
+            st.session_state["연금 월 투자"] = (
+                f'{portfolio["monthly_pension"]:,}'
+            )
+
+            st.session_state["selected_etf_name"] = (
+                portfolio["selected_etf"]
+            )
+
+            st.session_state["portfolio_exists"] = True
+
+        else:
+
+            # -----------------------------
+            # 최초 로그인 회원
+            # -----------------------------
+
+            st.session_state["age"] = 54
+
+            st.session_state["현금"] = (
+                "280,000,000"
+            )
+
+            st.session_state["현재 ETF 금액"] = (
+                "80,000,000"
+            )
+
+            st.session_state["현재 채권 금액"] = (
+                "50,000,000"
+            )
+
+            st.session_state["현재 연금 금액"] = (
+                "30,000,000"
+            )
+
+            st.session_state["ETF 월 투자"] = (
+                "1,500,000"
+            )
+
+            st.session_state["채권 월 투자"] = (
+                "1,000,000"
+            )
+
+            st.session_state["연금 월 투자"] = (
+                "500,000"
+            )
+
+            st.session_state["selected_etf_name"] = None
+
+            st.session_state["portfolio_exists"] = False
+
+        # ★ 현재 로드한 회원 ID 기록
+        st.session_state[
+            "portfolio_loaded_user_id"
+        ] = user_id
+
+
 
     # =====================================================
     # 4. 상단 헤더
@@ -158,8 +270,9 @@ def show_dashboard():
         "나이 (세)",
         min_value=20,
         max_value=100,
-        value=54,
+        value=st.session_state.get("age", 54),
         step=1,
+        key="age_input",
     )
 
     # -----------------------------------------------------
@@ -242,15 +355,46 @@ def show_dashboard():
     # =====================================================
 
     st.sidebar.subheader("🎯 Target ETF 선택")
+    # =====================================================
+    # 저장된 ETF 찾기
+    # =====================================================
+
+    saved_etf_name = st.session_state.get(
+        "selected_etf_name"
+    )
+
+    default_etf_index = 0
+
+    if saved_etf_name:
+
+        for index, etf in enumerate(etfs):
+
+            if etf.get("name") == saved_etf_name:
+                default_etf_index = index
+                break
+
+    # =====================================================
+    # ETF 선택
+    # =====================================================
 
     selected_etf = st.sidebar.selectbox(
         "관심 ETF",
         etfs,
+        index=default_etf_index,
         format_func=lambda x: x.get(
             "name",
             "Unknown ETF",
         ),
     )
+
+    selected_etf = selected_etf or {}
+
+    etf_name = selected_etf.get(
+        "name",
+        "Unknown ETF",
+    )
+
+    st.session_state["selected_etf_name"] = etf_name
 
     selected_etf = selected_etf or {}
 
@@ -284,6 +428,47 @@ def show_dashboard():
     except (TypeError, ValueError):
 
         etf_risk = 3
+
+    # =====================================================
+    # 포트폴리오 저장
+    # =====================================================
+
+    st.sidebar.divider()
+
+    st.sidebar.subheader("💾 포트폴리오 저장")
+
+    if st.sidebar.button(
+            "💾 현재 포트폴리오 저장",
+            type="primary",
+            use_container_width=True,
+    ):
+
+        success = save_portfolio(
+            user_id=user_id,
+            age=age,
+            cash=cash,
+            etf_amount=etf_amount,
+            bond_amount=bond_amount,
+            pension_amount=pension_amount,
+            monthly_etf=monthly_etf,
+            monthly_bond=monthly_bond,
+            monthly_pension=monthly_pension,
+            selected_etf=etf_name,
+        )
+
+        if success:
+
+            st.sidebar.success(
+                "✅ 포트폴리오가 저장되었습니다."
+            )
+
+            st.session_state["portfolio_exists"] = True
+
+        else:
+
+            st.sidebar.error(
+                "❌ 포트폴리오 저장에 실패했습니다."
+            )
 
     # =====================================================
     # 8. 총 자산 계산

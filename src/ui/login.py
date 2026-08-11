@@ -1,6 +1,10 @@
 import streamlit as st
+from streamlit_cookies_controller import CookieController
 
 from src.core.auth import login
+
+
+cookies = CookieController()
 
 
 def show_login():
@@ -24,13 +28,9 @@ def show_login():
             use_container_width=True
         )
 
-    # ==========================================
-    # 로그인 처리
-    # ==========================================
 
     if submitted:
 
-        # 입력값 확인
         if not username or not password:
 
             st.warning(
@@ -39,43 +39,58 @@ def show_login():
 
             return
 
-        # 로그인 인증
+
         result = login(
             username,
             password
         )
 
-        # ==========================================
-        # 로그인 성공
-        # ==========================================
 
         if result:
 
-            # JWT 저장
-            st.session_state.access_token = (
-                result["access_token"]
-            )
+            token = result["access_token"]
 
-            # 사용자 ID 저장
+
+            # -----------------------------------------
+            # Session State 저장
+            # -----------------------------------------
+
+            st.session_state.access_token = token
+
             st.session_state.user_id = (
                 result["user_id"]
             )
 
-            # 사용자 이름 저장
             st.session_state.login_user = (
                 result["username"]
             )
+
+
+            # -----------------------------------------
+            # 브라우저 Cookie 저장
+            # -----------------------------------------
+
+            cookies.set(
+                "access_token",
+                token,
+                max_age=60 * 60,
+            )
+
+
+            # -----------------------------------------
+            # 포트폴리오 자동 복원을 위해 초기화
+            # -----------------------------------------
+
+            st.session_state.portfolio_loaded = False
+
 
             st.success(
                 f"{result['username']}님 환영합니다!"
             )
 
-            # 앱 다시 실행
+
             st.rerun()
 
-        # ==========================================
-        # 로그인 실패
-        # ==========================================
 
         else:
 
