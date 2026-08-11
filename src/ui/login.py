@@ -122,11 +122,12 @@ def show_login(cookies):
     # =====================================================
     # 로그인 정보 추출
     # =====================================================
-    token = result.get("access_token")
+    access_token = result.get("access_token")
+    refresh_token = result.get("refresh_token")
     user_id = result.get("user_id")
     username = result.get("username")
 
-    if not token:
+    if not access_token or not refresh_token:
         st.error("❌ 로그인 토큰을 생성하지 못했습니다.")
         return
 
@@ -141,9 +142,10 @@ def show_login(cookies):
         return
 
     # =====================================================
-    # Session State 저장
+    # ★ Session State 저장 (Access Token - Memory Only)
+    # Access Token은 클라이언트 메모리(Session State)에만 유지됩니다.
     # =====================================================
-    st.session_state["access_token"] = token
+    st.session_state["access_token"] = access_token
     st.session_state["user_id"] = user_id
     st.session_state["login_user"] = username
 
@@ -153,20 +155,19 @@ def show_login(cookies):
     st.session_state["portfolio_exists"] = False
 
     # =====================================================
-    # ★ 브라우저 Cookie 저장
-    # CookieController.set()은 (name, value) 기본 형태로 호출해야
-    # TypeError 없이 브라우저 JS 컴포넌트로 전달됩니다.
+    # ★ 브라우저 Cookie 저장 (Refresh Token 전용)
+    # Access Token이 아니라 탈취 위험이 낮은 Refresh Token을 쿠키에 저장합니다.
+    # 페이지가 새로고침되어 Session State가 날아가면 이 Refresh Token으로
+    # Access Token을 자동 재발급받게 됩니다.
     # =====================================================
     try:
-        cookies.set("access_token", token)
+        cookies.set("refresh_token", refresh_token)
     except Exception as e:
-        st.error(f"❌ 로그인 쿠키 저장 실패: {e}")
+        st.error(f"❌ Refresh Token 쿠키 저장 실패: {e}")
         return
 
     # =====================================================
     # 로그인 완료 후 대시보드 진입
-    # 즉시 st.rerun()을 호출하면 JS 쿠키 전송이 차단되므로
-    # 버튼 클릭 또는 안전한 이동을 유도합니다.
     # =====================================================
     st.success(f"✅ {username}님 환영합니다!")
 

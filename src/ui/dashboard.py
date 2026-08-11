@@ -5,6 +5,7 @@ import streamlit as st
 from dotenv import load_dotenv
 
 from src.api.etf_api import ETFData
+from src.core.auth import refresh_access_token
 from src.core.portfolio import analyze_portfolio
 from src.core.recommender import recommend
 from src.db.portfolio_dao import get_portfolio, save_portfolio
@@ -28,9 +29,37 @@ DEFAULT_PORTFOLIO = {
 
 
 # =========================================================
-# 금액 입력 함수 (개선)
+# Refresh Token 자동 세션 복구 함수 (신규 추가)
 # =========================================================
 
+def try_auto_refresh_session(cookies):
+    """
+    Session State에 Access Token이 없지만 Cookie에 Refresh Token이 존재하는 경우
+    Access Token을 자동 재발급받아 인증 세션을 복구합니다.
+    """
+    if "access_token" in st.session_state and st.session_state["access_token"]:
+        return True
+
+    # 쿠키에서 refresh_token 확인
+    refresh_token = cookies.get("refresh_token")
+    user_id = st.session_state.get("user_id")
+
+    if refresh_token and user_id:
+        try:
+            # Refresh Token으로 새 Access Token 요청
+            res = refresh_access_token(user_id, refresh_token)
+            if res and res.get("access_token"):
+                st.session_state["access_token"] = res["access_token"]
+                return True
+        except Exception as e:
+            print(f"[AUTH REFRESH ERROR] {e}")
+
+    return False
+
+
+# =========================================================
+# 금액 입력 함수
+# =========================================================
 
 def money_input(label, default):
     """금액을 천 단위 콤마 형식으로 입력받는다."""
@@ -68,9 +97,8 @@ def money_input(label, default):
 
 
 # =========================================================
-# Dashboard 위젯 상태 초기화 (개선)
+# Dashboard 위젯 상태 초기화
 # =========================================================
-
 
 def reset_portfolio_widget_state():
     """다른 사용자 로그인 시 이전 사용자의 Dashboard 입력값을 모두 제거한다."""
@@ -103,7 +131,6 @@ def reset_portfolio_widget_state():
 # DB 포트폴리오 → Session State
 # =========================================================
 
-
 def load_portfolio_to_session(portfolio):
     """DB에서 읽은 포트폴리오를 Session State에 저장한다."""
 
@@ -134,7 +161,6 @@ def load_portfolio_to_session(portfolio):
 # =========================================================
 # 기본 포트폴리오 → Session State
 # =========================================================
-
 
 def load_default_portfolio():
     """최초 가입 회원에게 기본 포트폴리오를 설정한다."""
@@ -167,16 +193,22 @@ def load_default_portfolio():
 # Dashboard
 # =========================================================
 
-
-def show_dashboard(user_id):
+def show_dashboard(user_id, cookies=None):
     # =====================================================
     # 1. 환경변수
     # =====================================================
     load_dotenv()
 
     # =====================================================
-    # 2. 사용자 ID 검증
+    # 2. 토큰 및 사용자 인증 검증 (자동 재발급 검사 추가)
     # =====================================================
+    if cookies:
+        try_auto_refresh_session(cookies)
+
+    if not st.session_state.get("access_token"):
+        st.error("🔒 세션이 만료되었습니다. 다시 로그인해주세요.")
+        return
+
     if user_id is None:
         st.error("❌ 사용자 인증 정보를 확인할 수 없습니다.")
         return
@@ -526,7 +558,6 @@ def show_dashboard(user_id):
                 st.markdown("#### 📌 추천 전략")
                 st.info(st.session_state["ai_recommendation"])
             else:
-
                 st.caption(
                     "버튼을 누르면 AI가 현재 포트폴리오를 진단합니다."
                 )
@@ -587,88 +618,92 @@ def show_dashboard(user_id):
             )
             st.plotly_chart(fig_gauge, use_container_width=True)
 
-        # =====================================================
-        # TAB 3 (개선: 자릿수 구분 및 억/만원 포맷팅 추가)
-        # =====================================================
-        with tab3:
-            st.subheader("📈 복리 기반 10년 자산 성장 추이")
+    # =====================================================
+    # TAB 3
+    # =====================================================
+    with tab3:
+        st.subheader("📈 복리 기반 10년 자산 성장 추이")
 
-            etf_r = etf_return / 100
-            bond_r = 0.03
-            pension_r = 0.05
+        etf_r = etf_return / 100
+        bond_r = 0.03
+        pension_r = 0.05
 
-            years = list(range(1, 11))
-            values = []
+        years = list(range(1, 11))
+        values = []
 
-            for y in years:
-                # 일시금 복리
-                current_etf_future = etf_amount * ((1 + etf_r) ** y)
-                current_bond_future = bond_amount * ((1 + bond_r) ** y)
-                current_pension_future = pension_amount * ((1 + pension_r) ** y)
+        for y in years:
+            # 일시금 복리
+            current_etf_future = etf_amount * ((1 + etf_r) ** y)
+            current_bond_future = bond_amount * ((1 + bond_r) ** y)
+            current_pension_future = pension_amount * ((1 + pension_r) ** y)
 
-                # 적립식 복리 시뮬레이션
-                monthly_etf_future = simulate(y, monthly_etf, etf_r)
-                monthly_bond_future = simulate(y, monthly_bond, bond_r)
-                monthly_pension_future = simulate(y, monthly_pension, pension_r)
+            # 적립식 복리 시뮬레이션
+            monthly_etf_future = simulate(y, monthly_etf, etf_r)
+            monthly_bond_future = simulate(y, monthly_bond, bond_r)
+            monthly_pension_future = simulate(y, monthly_pension, pension_r)
 
-                total_future = (
-                        cash
-                        + current_etf_future
-                        + current_bond_future
-                        + current_pension_future
-                        + monthly_etf_future
-                        + monthly_bond_future
-                        + monthly_pension_future
-                )
-                values.append(total_future)
+            total_future = (
+                cash
+                + current_etf_future
+                + current_bond_future
+                + current_pension_future
+                + monthly_etf_future
+                + monthly_bond_future
+                + monthly_pension_future
+            )
+            values.append(total_future)
 
-            # 금액 포맷팅 함수 (1억 이상 시 억/만원, 미만 시 천단위 콤마)
-            def format_krw(val):
-                val = int(val)
-                eok = val // 100_000_000
-                man = (val % 100_000_000) // 10_000
-                if eok > 0:
-                    return f"{eok}억 {man:,}만원" if man > 0 else f"{eok}억원"
-                return f"{val:,}원"
+        # 금액 포맷팅 함수 (1억 이상 시 억/만원, 미만 시 천단위 콤마)
+        def format_krw(val):
+            val = int(val)
+            eok = val // 100_000_000
+            man = (val % 100_000_000) // 10_000
+            if eok > 0:
+                return f"{eok}억 {man:,}만원" if man > 0 else f"{eok}억원"
+            return f"{val:,}원"
 
-            df_sim = pd.DataFrame({
+        df_sim = pd.DataFrame(
+            {
                 "연도": [f"{y}년후" for y in years],
                 "예상 총 자산": values,
-                "표시금액": [f"{int(v):,}원" for v in values],  # 천단위 콤마 적용
-                "표시금액_한글": [format_krw(v) for v in values]  # 억/만원 단위 적용
-            })
+                "표시금액": [f"{int(v):,}원" for v in values],
+                "표시금액_한글": [format_krw(v) for v in values],
+            }
+        )
 
-            fig_line = px.line(
-                df_sim,
-                x="연도",
-                y="예상 총 자산",
-                markers=True,
-                text="표시금액",  # '표시금액_한글'로 변경 시 "X억 X만원" 형태로 출력됩니다.
-            )
+        fig_line = px.line(
+            df_sim,
+            x="연도",
+            y="예상 총 자산",
+            markers=True,
+            text="표시금액",
+        )
 
-            fig_line.update_traces(
-                textposition="top center",
-                line_color="#4fc3f7",
-                line_width=3,
-            )
+        fig_line.update_traces(
+            textposition="top center",
+            line_color="#4fc3f7",
+            line_width=3,
+        )
 
-            # 차트 상단 텍스트 잘림 방지 (Y축 여백 추가 및 콤마 포맷 지정)
-            max_val = max(values) if values else 1
-            fig_line.update_layout(
-                yaxis=dict(tickformat=",", range=[0, max_val * 1.15]),
-                paper_bgcolor="rgba(0,0,0,0)",
-                plot_bgcolor="rgba(0,0,0,0)",
-                margin=dict(t=40, b=20, l=20, r=20),
-            )
+        # 차트 상단 텍스트 잘림 방지 (Y축 여백 추가 및 콤마 포맷 지정)
+        max_val = max(values) if values else 1
+        fig_line.update_layout(
+            yaxis=dict(tickformat=",", range=[0, max_val * 1.15]),
+            paper_bgcolor="rgba(0,0,0,0)",
+            plot_bgcolor="rgba(0,0,0,0)",
+            margin=dict(t=40, b=20, l=20, r=20),
+        )
 
-            st.plotly_chart(fig_line, use_container_width=True)
+        st.plotly_chart(fig_line, use_container_width=True)
 
-            # 표 출력 시 천단위 콤마 및 한글 단위 병기
-            df_sim_display = pd.DataFrame({
+        # 표 출력 시 천단위 콤마 및 한글 단위 병기
+        df_sim_display = pd.DataFrame(
+            {
                 "연도": df_sim["연도"],
                 "예상 총 자산 (원)": df_sim["표시금액"],
-                "예상 총 자산 (요약)": df_sim["표시금액_한글"]
-            })
-            st.dataframe(
-                df_sim_display, use_container_width=True, hide_index=True
-            )
+                "예상 총 자산 (요약)": df_sim["표시금액_한글"],
+            }
+        )
+        st.dataframe(
+            df_sim_display, use_container_width=True, hide_index=True
+        )
