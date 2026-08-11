@@ -1,94 +1,166 @@
 import streamlit as st
 
-from src.core.auth import signup
+from src.db.user_dao import create_user
 
+
+# =========================================================
+# 회원가입 화면
+# =========================================================
 
 def show_signup():
 
     st.subheader("📝 회원가입")
 
-    with st.form("signup_form"):
+    # =====================================================
+    # 회원가입 입력
+    # =====================================================
 
-        username = st.text_input(
-            "아이디"
-        )
+    username = st.text_input(
+        "아이디",
+        key="signup_username",
+    )
 
-        password = st.text_input(
-            "비밀번호",
-            type="password"
-        )
+    password = st.text_input(
+        "비밀번호",
+        type="password",
+        key="signup_password",
+    )
 
-        password_confirm = st.text_input(
-            "비밀번호 확인",
-            type="password"
-        )
+    password_confirm = st.text_input(
+        "비밀번호 확인",
+        type="password",
+        key="signup_password_confirm",
+    )
 
-        submitted = st.form_submit_button(
-            "회원가입",
-            use_container_width=True
-        )
+    # =====================================================
+    # 회원가입 버튼
+    # =====================================================
 
-    # ==========================================
-    # 회원가입 처리
-    # ==========================================
+    if st.button(
+        "회원가입",
+        key="signup_button",
+        use_container_width=True,
+    ):
 
-    if submitted:
+        # -------------------------------------------------
+        # 입력값 검증
+        # -------------------------------------------------
 
-        # 입력값 공백 제거
         username = username.strip()
 
-        # 필수 입력 확인
-        if not username or not password:
+        if not username:
 
-            st.warning(
-                "아이디와 비밀번호를 입력해주세요."
+            st.error(
+                "❌ 아이디를 입력하세요."
             )
 
             return
 
-        # 아이디 길이 확인
-        if len(username) < 4:
+        if not password:
 
-            st.warning(
-                "아이디는 4자 이상 입력해주세요."
+            st.error(
+                "❌ 비밀번호를 입력하세요."
             )
 
             return
 
-        # 비밀번호 확인
+        if not password_confirm:
+
+            st.error(
+                "❌ 비밀번호 확인을 입력하세요."
+            )
+
+            return
+
         if password != password_confirm:
 
             st.error(
-                "비밀번호가 일치하지 않습니다."
+                "❌ 비밀번호가 일치하지 않습니다."
             )
 
             return
 
-        # 비밀번호 길이 확인
-        if len(password) < 8:
+        # -------------------------------------------------
+        # 회원가입 처리
+        # -------------------------------------------------
 
-            st.warning(
-                "비밀번호는 8자 이상 입력해주세요."
+        user_id = create_user(
+            username,
+            password,
+        )
+
+        # -------------------------------------------------
+        # 회원가입 성공
+        # -------------------------------------------------
+
+        if user_id:
+
+            # 기존 로그인 세션 제거
+            st.session_state.pop(
+                "user_id",
+                None,
             )
 
-            return
+            st.session_state.pop(
+                "username",
+                None,
+            )
 
-        # ==========================================
-        # 회원가입
-        # ==========================================
+            st.session_state.pop(
+                "login_user",
+                None,
+            )
 
-        if signup(username, password):
+            st.session_state[
+                "logged_in"
+            ] = False
+
+            # -------------------------------------------------
+            # 포트폴리오 세션 제거
+            # -------------------------------------------------
+
+            st.session_state.pop(
+                "portfolio_loaded_user_id",
+                None,
+            )
+
+            st.session_state.pop(
+                "portfolio_exists",
+                None,
+            )
+
+            # -------------------------------------------------
+            # 회원가입 성공 메시지
+            # -------------------------------------------------
 
             st.success(
-                "✅ 회원가입이 완료되었습니다."
+                f"✅ '{username}' 회원가입이 완료되었습니다!"
             )
 
             st.info(
-                "🔐 로그인 메뉴에서 로그인해주세요."
+                "🔐 회원가입이 완료되었습니다. "
+                "아래 로그인 화면에서 새 계정으로 로그인해주세요."
             )
+
+            # -------------------------------------------------
+            # 입력창 초기화하지 않음
+            #
+            # st.rerun()도 실행하지 않음
+            #
+            # 메시지를 화면에 유지하기 위해서입니다.
+            # -------------------------------------------------
+
+        # -------------------------------------------------
+        # 회원가입 실패
+        # -------------------------------------------------
 
         else:
 
             st.error(
-                "❌ 이미 존재하는 아이디입니다."
+                "❌ 회원가입에 실패했습니다."
+            )
+
+            st.warning(
+                f"⚠️ '{username}' 아이디가 이미 존재하거나 "
+                "DB 저장 중 오류가 발생했을 수 있습니다."
             )
