@@ -99,6 +99,27 @@ def init_db():
             """
         )
 
+        # ---------------------------------------------
+        # contribution_plans (연금저축/IRP 납입 계획)
+        # ---------------------------------------------
+        cursor.execute(
+            """
+            CREATE TABLE IF NOT EXISTS contribution_plans (
+                user_id INTEGER PRIMARY KEY,
+                p_sp500 INTEGER NOT NULL DEFAULT 300000,
+                p_nasdaq INTEGER NOT NULL DEFAULT 300000,
+                p_dividend INTEGER NOT NULL DEFAULT 600000,
+                i_high_div INTEGER NOT NULL DEFAULT 180000,
+                i_cover_call INTEGER NOT NULL DEFAULT 240000,
+                i_bond INTEGER NOT NULL DEFAULT 900000,
+                start_month INTEGER NOT NULL DEFAULT 9,
+                end_month INTEGER NOT NULL DEFAULT 12,
+                updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+                FOREIGN KEY (user_id) REFERENCES users(id) ON DELETE CASCADE
+            )
+            """
+        )
+
         conn.commit()
         print("[DB INIT] 성공적으로 데이터베이스 테이블을 초기화했습니다.")
 
