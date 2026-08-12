@@ -6,3 +6,4 @@ openai
 PyJWT
 bcrypt
 streamlit-cookies-controller
+plotly

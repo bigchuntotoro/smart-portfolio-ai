@@ -1,29 +1,33 @@
+import json
 import sqlite3
-from typing import Dict, Any
+from typing import Any, Dict
+
 from src.db.database import get_connection
 
-# 기본 세팅값 (데이터가 없을 때 반환)
+# 기본 세팅값 (ETF별 1~12월 0원 배열)
+DEFAULT_MONTHLY_DATA = {
+    "p_sp500": [0] * 12,
+    "p_nasdaq": [0] * 12,
+    "p_dividend": [0] * 12,
+    "i_high_div": [0] * 12,
+    "i_cover_call": [0] * 12,
+    "i_bond": [0] * 12,
+}
+
 DEFAULT_PLAN = {
-    "p_sp500": 300_000,
-    "p_nasdaq": 300_000,
-    "p_dividend": 600_000,
-    "i_high_div": 180_000,
-    "i_cover_call": 240_000,
-    "i_bond": 900_000,
     "start_month": 9,
     "end_month": 12,
+    "monthly_data": DEFAULT_MONTHLY_DATA,
 }
 
 
 def get_user_plan(user_id: int) -> Dict[str, Any]:
-    """
-    사용자의 연금 납입 플랜을 DB에서 조회합니다.
-    저장된 데이터가 없으면 기본값(DEFAULT_PLAN)을 반환합니다.
+    """사용자의 월별 연금 납입 플랜을 DB에서 조회합니다.
+
+    데이터가 없거나 파싱 오류 발생 시 기본값을 반환합니다.
     """
     query = """
-    SELECT p_sp500, p_nasdaq, p_dividend, 
-           i_high_div, i_cover_call, i_bond, 
-           start_month, end_month
+    SELECT monthly_data, start_month, end_month
     FROM contribution_plans
     WHERE user_id = ?
     """
@@ -35,7 +39,13 @@ def get_user_plan(user_id: int) -> Dict[str, Any]:
         row = cursor.fetchone()
 
         if row:
-            return dict(row)
+            raw_json = row["monthly_data"]
+            monthly_data = json.loads(raw_json) if raw_json else DEFAULT_MONTHLY_DATA.copy()
+            return {
+                "start_month": row["start_month"],
+                "end_month": row["end_month"],
+                "monthly_data": monthly_data,
+            }
         else:
             return DEFAULT_PLAN.copy()
     except Exception as e:
@@ -47,35 +57,42 @@ def get_user_plan(user_id: int) -> Dict[str, Any]:
 
 
 def save_user_plan(user_id: int, plan_data: Dict[str, Any]) -> bool:
-    """
-    사용자의 연금 납입 플랜을 DB에 저장/업데이트(Upsert)합니다.
-    """
+    """사용자의 월별 연금 납입 플랜을 DB에 저장/업데이트(Upsert)합니다."""
     query = """
     INSERT INTO contribution_plans (
-        user_id, p_sp500, p_nasdaq, p_dividend,
-        i_high_div, i_cover_call, i_bond,
-        start_month, end_month, updated_at
-    ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, CURRENT_TIMESTAMP)
+        user_id, monthly_data, start_month, end_month, updated_at
+    ) VALUES (?, ?, ?, ?, CURRENT_TIMESTAMP)
     ON CONFLICT(user_id) DO UPDATE SET
-        p_sp500 = EXCLUDED.p_sp500,
-        p_nasdaq = EXCLUDED.p_nasdaq,
-        p_dividend = EXCLUDED.p_dividend,
-        i_high_div = EXCLUDED.i_high_div,
-        i_cover_call = EXCLUDED.i_cover_call,
-        i_bond = EXCLUDED.i_bond,
+        monthly_data = EXCLUDED.monthly_data,
         start_month = EXCLUDED.start_month,
         end_month = EXCLUDED.end_month,
         updated_at = CURRENT_TIMESTAMP;
     """
 
+    monthly_data = plan_data.get("monthly_data", DEFAULT_MONTHLY_DATA)
+
+    monthly_data = plan_data.get(
+    "monthly_data",
+    DEFAULT_MONTHLY_DATA
+    )
+
+    # 모든 납입액을 Python int로 변환
+    clean_monthly_data = {}
+
+    for key, values in monthly_data.items():
+        clean_monthly_data[key] = [
+            int(v) if v is not None else 0
+            for v in values
+        ]
+
+    monthly_json_str = json.dumps(
+        clean_monthly_data,
+        ensure_ascii=False
+    )
+
     params = (
         user_id,
-        plan_data.get("p_sp500", 300_000),
-        plan_data.get("p_nasdaq", 300_000),
-        plan_data.get("p_dividend", 600_000),
-        plan_data.get("i_high_div", 180_000),
-        plan_data.get("i_cover_call", 240_000),
-        plan_data.get("i_bond", 900_000),
+        monthly_json_str,
         plan_data.get("start_month", 9),
         plan_data.get("end_month", 12),
     )

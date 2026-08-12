@@ -34,7 +34,7 @@ def get_connection():
 
 
 # =========================================================
-# DB 초기화 (WAL 모드는 최초 1회만 설정)
+# DB 초기화 및 마이그레이션
 # =========================================================
 
 def init_db():
@@ -42,7 +42,7 @@ def init_db():
     try:
         conn = get_connection()
 
-        # 🌟 WAL 모드는 DB 초기화 시점에 딱 1번만 실행합니다.
+        # WAL 모드는 DB 초기화 시점에 1회 설정
         conn.execute("PRAGMA journal_mode = WAL;")
 
         cursor = conn.cursor()
@@ -100,18 +100,13 @@ def init_db():
         )
 
         # ---------------------------------------------
-        # contribution_plans (연금저축/IRP 납입 계획)
+        # contribution_plans (월별 납입 계획 JSON 포함)
         # ---------------------------------------------
         cursor.execute(
             """
             CREATE TABLE IF NOT EXISTS contribution_plans (
                 user_id INTEGER PRIMARY KEY,
-                p_sp500 INTEGER NOT NULL DEFAULT 300000,
-                p_nasdaq INTEGER NOT NULL DEFAULT 300000,
-                p_dividend INTEGER NOT NULL DEFAULT 600000,
-                i_high_div INTEGER NOT NULL DEFAULT 180000,
-                i_cover_call INTEGER NOT NULL DEFAULT 240000,
-                i_bond INTEGER NOT NULL DEFAULT 900000,
+                monthly_data TEXT NOT NULL,
                 start_month INTEGER NOT NULL DEFAULT 9,
                 end_month INTEGER NOT NULL DEFAULT 12,
                 updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
@@ -119,6 +114,26 @@ def init_db():
             )
             """
         )
+
+        # 🔄 기존 DB 테이블이 이전 구조(p_sp500 컬럼 존재 등)일 경우 마이그레이션 처리
+        cursor.execute("PRAGMA table_info(contribution_plans);")
+        columns = [column[1] for column in cursor.fetchall()]
+
+        if "monthly_data" not in columns:
+            # 기존 구버전 테이블 삭제 후 신규 생성 (기존 단순 합계 구조와 호환 불가 대응)
+            cursor.execute("DROP TABLE IF EXISTS contribution_plans;")
+            cursor.execute(
+                """
+                CREATE TABLE contribution_plans (
+                    user_id INTEGER PRIMARY KEY,
+                    monthly_data TEXT NOT NULL,
+                    start_month INTEGER NOT NULL DEFAULT 9,
+                    end_month INTEGER NOT NULL DEFAULT 12,
+                    updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+                    FOREIGN KEY (user_id) REFERENCES users(id) ON DELETE CASCADE
+                )
+                """
+            )
 
         conn.commit()
         print("[DB INIT] 성공적으로 데이터베이스 테이블을 초기화했습니다.")
