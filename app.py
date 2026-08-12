@@ -128,6 +128,15 @@ def is_authenticated():
             print(f"Refresh Token Cookie 읽기 오류: {e}")
             refresh_token = None
 
+        if user_id is None:
+            try:
+                cookie_user_id = cookies.get("user_id")
+                if cookie_user_id is not None:
+                    user_id = int(cookie_user_id)
+            except (Exception, TypeError, ValueError) as e:
+                print(f"user_id 쿠키 읽기 오류: {e}")
+                user_id = None
+
         if refresh_token:
             try:
                 # Refresh Token을 활용해 새로운 Access Token 발급 요청
@@ -135,6 +144,17 @@ def is_authenticated():
                 if res and res.get("access_token"):
                     token = res["access_token"]
                     st.session_state["access_token"] = token
+            except Exception as e:
+                print(f"Token Refresh 실패: {e}")
+                token = None
+
+        if refresh_token and user_id is not None:
+            try:
+                res = refresh_access_token(user_id, refresh_token)
+                if res and res.get("access_token"):
+                    token = res["access_token"]
+                    st.session_state["access_token"] = token
+                    st.session_state["user_id"] = user_id   # ← 세션에도 복원
             except Exception as e:
                 print(f"Token Refresh 실패: {e}")
                 token = None
@@ -161,6 +181,7 @@ def is_authenticated():
         clear_user_session()
         try:
             cookies.remove("refresh_token", path="/")
+            cookies.remove("user_id", path="/")
         except Exception:
             pass
         return False
@@ -175,6 +196,7 @@ def is_authenticated():
         clear_user_session()
         try:
             cookies.remove("refresh_token", path="/")
+            cookies.remove("user_id", path="/")
         except Exception:
             pass
         return False
@@ -185,6 +207,7 @@ def is_authenticated():
         clear_user_session()
         try:
             cookies.remove("refresh_token", path="/")
+            cookies.remove("user_id", path="/")
         except Exception:
             pass
         return False
@@ -230,6 +253,7 @@ if authenticated:
         try:
             # Refresh Token 쿠키 삭제
             cookies.remove("refresh_token", path="/")
+            cookies.remove("user_id", path="/")
         except Exception as e:
             print(f"Cookie 삭제 오류: {e}")
 

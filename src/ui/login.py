@@ -162,6 +162,7 @@ def show_login(cookies):
     # =====================================================
     try:
         cookies.set("refresh_token", refresh_token)
+        cookies.set("user_id", str(user_id))
     except Exception as e:
         st.error(f"❌ Refresh Token 쿠키 저장 실패: {e}")
         return

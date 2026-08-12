@@ -75,7 +75,7 @@ def hash_password(plain_password: str) -> str:
 def hash_token(token: str) -> str:
     """Refresh Token을 DB에 안전하게 저장하기 위한 bcrypt 해시"""
     return bcrypt.hashpw(
-        token.encode("utf-8"),
+        token.encode("utf-8")[:72],
         bcrypt.gensalt()
     ).decode("utf-8")
 
@@ -83,7 +83,7 @@ def hash_token(token: str) -> str:
 def verify_token_hash(token: str, token_hash: str) -> bool:
     """Refresh Token 일치 여부 검증"""
     return bcrypt.checkpw(
-        token.encode("utf-8"),
+        token.encode("utf-8")[:72],
         token_hash.encode("utf-8")
     )
 
@@ -127,7 +127,7 @@ def create_access_token(user_id, username):
 
 def create_refresh_token():
     """예측 불가능한 무작위 Refresh Token 문자열 생성"""
-    return secrets.token_urlsafe(64)
+    return secrets.token_urlsafe(48)
 
 
 # ==========================================
@@ -153,7 +153,7 @@ def login(username, password):
 
     # Refresh Token 발급 및 DB 저장
     refresh_token = create_refresh_token()
-    refresh_token_hashed = hash_password(refresh_token)
+    refresh_token_hashed = hash_token(refresh_token)
 
     expires_at = datetime.now(timezone.utc) + timedelta(days=REFRESH_TOKEN_EXPIRE_DAYS)
 
@@ -193,7 +193,7 @@ def refresh_access_token(user_id, raw_refresh_token):
         return None
 
     # 3. 토큰 값 일치 여부 검증
-    if not verify_password(raw_refresh_token, db_hashed_token):
+    if not verify_token_hash(raw_refresh_token, db_hashed_token):
         return None
 
     # 4. 사용자 정보 조회 후 새로운 Access Token 생성
