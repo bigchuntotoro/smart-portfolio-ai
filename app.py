@@ -7,6 +7,8 @@ from src.db.database import init_db
 from src.ui.contribution_dashboard import show_pension_dashboard
 from src.ui.login import show_login
 from src.ui.signup import show_signup
+from src.ui.rebalancing import show_rebalancing_dashboard
+from src.ui.simulation import show_simulation_dashboard
 
 # =========================================================
 # 페이지 설정
@@ -18,20 +20,17 @@ st.set_page_config(
     layout="wide",
 )
 
-
 # =========================================================
 # DB 초기화
 # =========================================================
 
 init_db()
 
-
 # =========================================================
 # Cookie Controller
 # =========================================================
 
 cookies = CookieController()
-
 
 # =========================================================
 # Session State 초기화
@@ -45,7 +44,6 @@ DEFAULT_SESSION_STATE = {
     "start_month": 9,
     "end_month": 12,
 }
-
 
 for key, value in DEFAULT_SESSION_STATE.items():
     if key not in st.session_state:
@@ -159,13 +157,11 @@ def is_authenticated() -> bool:
 
     return True
 
-
 # =========================================================
 # 로그인 상태 확인
 # =========================================================
 
 authenticated = is_authenticated()
-
 
 # =========================================================
 # 메인 렌더링 영역
@@ -175,8 +171,24 @@ if authenticated:
     current_user_id = st.session_state.get("user_id")
     current_username = st.session_state.get("login_user")
 
-    # Sidebar 사용자 정보
+    # -----------------------------------------------------
+    # Sidebar 로그인 사용자 정보 & 메인 메뉴
+    # -----------------------------------------------------
     st.sidebar.markdown(f"### 👤 {current_username}님")
+    st.sidebar.caption("Smart Portfolio AI PRO")
+    st.sidebar.divider()
+
+    # 왼쪽 내비게이션 메뉴 라디오 버튼 추가
+    main_menu = st.sidebar.radio(
+        "📌 서비스 메뉴",
+        [
+            "💰 통합 연금 납입 대시보드",
+            "⚖️ 포트폴리오 리밸런싱",
+            "📊 자산 시뮬레이션",
+        ],
+        key="main_navigation_menu",
+    )
+
     st.sidebar.divider()
 
     # 로그아웃 버튼
@@ -185,12 +197,21 @@ if authenticated:
         clear_user_session()
         st.rerun()
 
-    # 로그인 후 화면 (연금 납입 대시보드)
-    show_pension_dashboard(user_id=current_user_id, cookies=cookies)
+    # -----------------------------------------------------
+    # 선택된 메뉴에 따른 메인 화면 렌더링 (라우팅)
+    # -----------------------------------------------------
+    if main_menu == "💰 통합 연금 납입 대시보드":
+        show_pension_dashboard(user_id=current_user_id, cookies=cookies)
+
+    elif main_menu == "⚖️ 포트폴리오 리밸런싱":
+        show_rebalancing_dashboard(user_id=current_user_id, cookies=cookies)
+
+    elif main_menu == "📊 자산 시뮬레이션":
+        show_simulation_dashboard(user_id=current_user_id, cookies=cookies)
 
 else:
     st.title("💰 Smart Portfolio AI PRO")
-    st.caption("연금저축 + IRP 납입 계획 관리")
+    st.caption("연금저축 + IRP 납입 계획 및 포트폴리오 자산 관리")
     st.divider()
 
     # 로그인 / 회원가입 선택

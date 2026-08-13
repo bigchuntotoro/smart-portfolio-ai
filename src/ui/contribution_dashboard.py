@@ -36,7 +36,7 @@ ETF_CONFIG = {
 # 관리 대상 연도
 YEARS = [2026, 2027, 2028, 2029, 2030]
 
-# 연도별 기본 시작/종료월 (2026년만 9월부터 시작한다고 가정, 나머지는 1~12월 전체)
+# 연도별 기본 시작/종료월 (2026년만 9월부터 시작, 나머지는 1~12월 전체)
 DEFAULT_START_END = {
     2026: (9, 12),
 }
@@ -73,10 +73,7 @@ def _normalize_monthly_list(vals):
 
 
 def _migrate_saved_plan(saved_plan):
-    """DB에서 불러온 데이터를 연도별 구조로 변환.
-    - 신규 포맷: {"2026": {...}, "2027": {...}, ...}
-    - 구(舊) 단일연도 포맷: {"start_month":.., "end_month":.., "monthly_data": {...}} (레거시 호환)
-    """
+    """DB에서 불러온 데이터를 연도별 구조로 변환."""
     yearly_data = _default_yearly_data()
 
     if not saved_plan:
@@ -108,7 +105,7 @@ def _migrate_saved_plan(saved_plan):
     return yearly_data
 
 
-# DataFrame 생성 헬퍼 함수 (연도 + 남은 납입 기간 기준 월 기준금액 계산)
+# DataFrame 생성 헬퍼 함수
 def create_account_df(account_name, year, remaining_months):
     month_cols = [f"{m}월" for m in range(1, 13)]
     rows = []
@@ -157,7 +154,7 @@ def _render_year_dashboard(year, user_id):
     month_cols = [f"{m}월" for m in range(1, 13)]
 
     # -----------------------------------------------------
-    # 1. 납입 기간 설정 (연도별 독립)
+    # 1. 납입 기간 설정 (페이지 이동 후 복귀 시 복원)
     # -----------------------------------------------------
     st.subheader(f"📅 {year}년 납입 기간 설정")
     col1, col2, col3 = st.columns(3)
@@ -165,13 +162,29 @@ def _render_year_dashboard(year, user_id):
     start_key = f"start_month_{year}"
     end_key = f"end_month_{year}"
 
+    # session_state에 해당 키가 없으면 yearly_data에서 복원
+    if start_key not in st.session_state:
+        st.session_state[start_key] = st.session_state["yearly_data"][year]["start_month"]
+    if end_key not in st.session_state:
+        st.session_state[end_key] = st.session_state["yearly_data"][year]["end_month"]
+
     with col1:
         start_month = st.number_input(
-            "시작월", min_value=1, max_value=12, step=1, key=start_key,
+            "시작월",
+            min_value=1,
+            max_value=12,
+            step=1,
+            value=st.session_state[start_key],
+            key=start_key,
         )
     with col2:
         end_month = st.number_input(
-            "종료월", min_value=1, max_value=12, step=1, key=end_key,
+            "종료월",
+            min_value=1,
+            max_value=12,
+            step=1,
+            value=st.session_state[end_key],
+            key=end_key,
         )
 
     remaining_months = end_month - start_month + 1
@@ -186,7 +199,7 @@ def _render_year_dashboard(year, user_id):
         st.error("❌ 시작월은 종료월보다 작거나 같아야 합니다. 납입 기간을 다시 확인해주세요.")
         return
 
-    # 세션에 즉시 반영 (저장 버튼에서 사용)
+    # 세션 상태 및 yearly_data 즉시 업데이트
     st.session_state["yearly_data"][year]["start_month"] = start_month
     st.session_state["yearly_data"][year]["end_month"] = end_month
 
@@ -292,7 +305,7 @@ def _render_year_dashboard(year, user_id):
     )
 
     # -----------------------------------------------------
-    # 💾 DB 저장 버튼 (해당 연도만 저장, 전체 구조로 업서트)
+    # 💾 DB 저장 버튼
     # -----------------------------------------------------
     st.write("")
     btn_col1, _ = st.columns([1, 2])
@@ -460,22 +473,22 @@ def show_pension_dashboard(user_id=None, cookies=None):
         st.session_state["yearly_data"] = _migrate_saved_plan(saved_plan)
         st.session_state["loaded_user_id"] = user_id
 
-        # 위젯 세션 캐시 제거 (유저 전환 시 이전 입력을 초기화)
+        # 위젯 세션 캐시 초기화
         for year in YEARS:
             st.session_state.pop(f"editor_pension_{year}", None)
             st.session_state.pop(f"editor_irp_{year}", None)
-            # start_month_{year} / end_month_{year}는 지우기만 하면 위젯이 기본값(1)으로
-            # 리셋되어 DB에서 불러온 값이 화면에 반영되지 않는다. 위젯 key에 로드된
-            # 값을 그대로 채워 넣어야 number_input이 그 값을 초기값으로 사용한다.
-            st.session_state[f"start_month_{year}"] = st.session_state["yearly_data"][year]["start_month"]
-            st.session_state[f"end_month_{year}"] = st.session_state["yearly_data"][year]["end_month"]
 
-    # 기본 세션 키 보장 (+ 위젯 key도 함께 최초 1회 시딩)
+    # 기본 세션 키 보장 및 납입 기간 세션 동기화
     if "yearly_data" not in st.session_state:
         st.session_state["yearly_data"] = _default_yearly_data()
-        for year in YEARS:
-            st.session_state.setdefault(f"start_month_{year}", st.session_state["yearly_data"][year]["start_month"])
-            st.session_state.setdefault(f"end_month_{year}", st.session_state["yearly_data"][year]["end_month"])
+
+    for year in YEARS:
+        st.session_state.setdefault(
+            f"start_month_{year}", st.session_state["yearly_data"][year]["start_month"]
+        )
+        st.session_state.setdefault(
+            f"end_month_{year}", st.session_state["yearly_data"][year]["end_month"]
+        )
 
     # =====================================================
     # 1. 5개년 통합 요약
