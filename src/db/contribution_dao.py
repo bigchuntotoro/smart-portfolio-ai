@@ -4,6 +4,14 @@ from typing import Any, Dict
 
 from src.db.database import get_connection
 
+# 관리 대상 연도 (대시보드와 동일하게 유지)
+YEARS = [2026, 2027, 2028, 2029, 2030]
+
+# 연도별 기본 시작/종료월 (2026년만 9~12월, 나머지는 1~12월 전체)
+DEFAULT_START_END = {
+    2026: (9, 12),
+}
+
 # 기본 세팅값 (ETF별 1~12월 0원 배열)
 DEFAULT_MONTHLY_DATA = {
     "p_sp500": [0] * 12,
@@ -14,20 +22,32 @@ DEFAULT_MONTHLY_DATA = {
     "i_bond": [0] * 12,
 }
 
-DEFAULT_PLAN = {
-    "start_month": 9,
-    "end_month": 12,
-    "monthly_data": DEFAULT_MONTHLY_DATA,
-}
+
+def _default_monthly_data() -> Dict[str, Any]:
+    return {k: v.copy() for k, v in DEFAULT_MONTHLY_DATA.items()}
+
+
+def _default_yearly_plan() -> Dict[str, Any]:
+    """연도별 기본 플랜 전체를 생성합니다. 반환 형태: {"2026": {...}, "2027": {...}, ...}"""
+    plan = {}
+    for year in YEARS:
+        start, end = DEFAULT_START_END.get(year, (1, 12))
+        plan[str(year)] = {
+            "start_month": start,
+            "end_month": end,
+            "monthly_data": _default_monthly_data(),
+        }
+    return plan
 
 
 def get_user_plan(user_id: int) -> Dict[str, Any]:
-    """사용자의 월별 연금 납입 플랜을 DB에서 조회합니다.
+    """사용자의 연도별(2026~2030) 연금 납입 플랜을 DB에서 조회합니다.
 
-    데이터가 없거나 파싱 오류 발생 시 기본값을 반환합니다.
+    반환 형태: {"2026": {"start_month":.., "end_month":.., "monthly_data": {...}}, "2027": {...}, ...}
+    데이터가 없는 연도는 기본값으로 채워서 반환하고, 조회/파싱 오류 시 전체 기본값을 반환합니다.
     """
     query = """
-    SELECT monthly_data, start_month, end_month
+    SELECT year, monthly_data, start_month, end_month
     FROM contribution_plans
     WHERE user_id = ?
     """
@@ -36,72 +56,84 @@ def get_user_plan(user_id: int) -> Dict[str, Any]:
         conn = get_connection()
         cursor = conn.cursor()
         cursor.execute(query, (user_id,))
-        row = cursor.fetchone()
+        rows = cursor.fetchall()
 
-        if row:
+        plan = _default_yearly_plan()
+
+        for row in rows:
+            year_key = str(row["year"])
+            if year_key not in plan:
+                # YEARS 범위 밖의 데이터(과거 이관 등)도 보존
+                plan[year_key] = {"start_month": 1, "end_month": 12, "monthly_data": _default_monthly_data()}
+
             raw_json = row["monthly_data"]
-            monthly_data = json.loads(raw_json) if raw_json else DEFAULT_MONTHLY_DATA.copy()
-            return {
+            try:
+                monthly_data = json.loads(raw_json) if raw_json else _default_monthly_data()
+            except (TypeError, json.JSONDecodeError):
+                monthly_data = _default_monthly_data()
+
+            plan[year_key] = {
                 "start_month": row["start_month"],
                 "end_month": row["end_month"],
                 "monthly_data": monthly_data,
             }
-        else:
-            return DEFAULT_PLAN.copy()
+
+        return plan
     except Exception as e:
         print(f"[DB ERROR] get_user_plan 실패 (user_id: {user_id}): {e}")
-        return DEFAULT_PLAN.copy()
+        return _default_yearly_plan()
     finally:
         if conn:
             conn.close()
 
 
 def save_user_plan(user_id: int, plan_data: Dict[str, Any]) -> bool:
-    """사용자의 월별 연금 납입 플랜을 DB에 저장/업데이트(Upsert)합니다."""
+    """사용자의 연도별 연금 납입 플랜을 DB에 저장/업데이트(Upsert)합니다.
+
+    plan_data 형태: {"2026": {"start_month":.., "end_month":.., "monthly_data": {...}}, "2027": {...}, ...}
+
+    하위 호환: plan_data가 예전처럼 {"start_month":.., "end_month":.., "monthly_data": {...}} 단일 연도
+    포맷으로 들어오면 2026년 데이터로 간주해 저장합니다.
+    """
+    # 레거시(단일 연도) 포맷 호환 처리
+    if "monthly_data" in plan_data and "start_month" in plan_data:
+        plan_data = {"2026": plan_data}
+
     query = """
     INSERT INTO contribution_plans (
-        user_id, monthly_data, start_month, end_month, updated_at
-    ) VALUES (?, ?, ?, ?, CURRENT_TIMESTAMP)
-    ON CONFLICT(user_id) DO UPDATE SET
-        monthly_data = EXCLUDED.monthly_data,
-        start_month = EXCLUDED.start_month,
-        end_month = EXCLUDED.end_month,
+        user_id, year, monthly_data, start_month, end_month, updated_at
+    ) VALUES (?, ?, ?, ?, ?, CURRENT_TIMESTAMP)
+    ON CONFLICT(user_id, year) DO UPDATE SET
+        monthly_data = excluded.monthly_data,
+        start_month = excluded.start_month,
+        end_month = excluded.end_month,
         updated_at = CURRENT_TIMESTAMP;
     """
-
-    monthly_data = plan_data.get("monthly_data", DEFAULT_MONTHLY_DATA)
-
-    monthly_data = plan_data.get(
-    "monthly_data",
-    DEFAULT_MONTHLY_DATA
-    )
-
-    # 모든 납입액을 Python int로 변환
-    clean_monthly_data = {}
-
-    for key, values in monthly_data.items():
-        clean_monthly_data[key] = [
-            int(v) if v is not None else 0
-            for v in values
-        ]
-
-    monthly_json_str = json.dumps(
-        clean_monthly_data,
-        ensure_ascii=False
-    )
-
-    params = (
-        user_id,
-        monthly_json_str,
-        plan_data.get("start_month", 9),
-        plan_data.get("end_month", 12),
-    )
 
     conn = None
     try:
         conn = get_connection()
         cursor = conn.cursor()
-        cursor.execute(query, params)
+
+        for year_key, year_plan in plan_data.items():
+            monthly_data = year_plan.get("monthly_data", DEFAULT_MONTHLY_DATA)
+
+            # 모든 납입액을 Python int로 변환
+            clean_monthly_data = {}
+            for key, values in monthly_data.items():
+                clean_monthly_data[key] = [int(v) if v is not None else 0 for v in values]
+
+            monthly_json_str = json.dumps(clean_monthly_data, ensure_ascii=False)
+
+            params = (
+                user_id,
+                int(year_key),
+                monthly_json_str,
+                year_plan.get("start_month", 1),
+                year_plan.get("end_month", 12),
+            )
+            cursor.execute(query, params)
+
         conn.commit()
         return True
     except Exception as e:
