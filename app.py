@@ -8,7 +8,7 @@ from src.ui.contribution_dashboard import show_pension_dashboard
 from src.ui.login import show_login
 from src.ui.signup import show_signup
 from src.ui.rebalancing import show_rebalancing_dashboard
-from src.ui.simulation import show_simulation_dashboard
+from src.ui.simulation import show_asset_simulation
 
 # =========================================================
 # 페이지 설정
@@ -207,7 +207,7 @@ if authenticated:
         show_rebalancing_dashboard(user_id=current_user_id, cookies=cookies)
 
     elif main_menu == "📊 자산 시뮬레이션":
-        show_simulation_dashboard(user_id=current_user_id, cookies=cookies)
+        show_asset_simulation(user_id=current_user_id, cookies=cookies)
 
 else:
     st.title("💰 Smart Portfolio AI PRO")
