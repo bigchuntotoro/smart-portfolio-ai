@@ -2,23 +2,55 @@ import pandas as pd
 import streamlit as st
 
 # =========================================================
-# 1. 포트폴리오 설정 (사용자 지정 비중 & 기본 기대수익률)
+# 1. 포트폴리오 설정 (기본 기대수익률 시나리오별 정의)
 # =========================================================
 
 ETF_CONFIG = {
     "연금저축": [
-        {"key": "p_sp500", "name": "TIGER 미국S&P500", "weight": 0.25, "annual_amount": 1_500_000, "default_return": 9.0},
-        {"key": "p_nasdaq", "name": "KODEX 미국나스닥100", "weight": 0.25, "annual_amount": 1_500_000,
-         "default_return": 11.0},
-        {"key": "p_dividend", "name": "KODEX 미국배당다우존스", "weight": 0.50, "annual_amount": 3_000_000,
-         "default_return": 8.0},
+        {
+            "key": "p_sp500",
+            "name": "TIGER 미국S&P500",
+            "weight": 0.25,
+            "annual_amount": 1_500_000,
+            "returns": {"보수적": 6.0, "중립적": 8.0, "공격적": 10.0},
+        },
+        {
+            "key": "p_nasdaq",
+            "name": "KODEX 미국나스닥100",
+            "weight": 0.25,
+            "annual_amount": 1_500_000,
+            "returns": {"보수적": 7.0, "중립적": 9.5, "공격적": 12.0},
+        },
+        {
+            "key": "p_dividend",
+            "name": "KODEX 미국배당다우존스",
+            "weight": 0.50,
+            "annual_amount": 3_000_000,
+            "returns": {"보수적": 5.5, "중립적": 7.5, "공격적": 9.0},
+        },
     ],
     "IRP": [
-        {"key": "i_high_div", "name": "KODEX 주주환원고배당주", "weight": 0.30, "annual_amount": 900_000,
-         "default_return": 7.5},
-        {"key": "i_cover_call", "name": "KODEX 200타겟위클리커버드콜", "weight": 0.40, "annual_amount": 1_200_000,
-         "default_return": 6.5},
-        {"key": "i_bond", "name": "KODEX 단기채권PLUS", "weight": 0.30, "annual_amount": 900_000, "default_return": 3.5},
+        {
+            "key": "i_high_div",
+            "name": "KODEX 주주환원고배당주",
+            "weight": 0.30,
+            "annual_amount": 900_000,
+            "returns": {"보수적": 4.0, "중립적": 5.5, "공격적": 7.0},
+        },
+        {
+            "key": "i_cover_call",
+            "name": "KODEX 200타겟위클리커버드콜",
+            "weight": 0.40,
+            "annual_amount": 1_200_000,
+            "returns": {"보수적": 3.5, "중립적": 5.0, "공격적": 6.5},
+        },
+        {
+            "key": "i_bond",
+            "name": "KODEX 단기채권PLUS",
+            "weight": 0.30,
+            "annual_amount": 900_000,
+            "returns": {"보수적": 2.5, "중립적": 3.2, "공격적": 4.0},
+        },
     ],
 }
 
@@ -40,35 +72,32 @@ def money_sim(value: float) -> str:
 # =========================================================
 
 def calculate_simulation(
-        initial_asset: int,
-        annual_pension_deposit: int,
-        annual_irp_deposit: int,
-        invest_years: int,
-        expected_returns: dict,
-        tax_credit_rate: float,
-        reinvest_tax_credit: bool,
+    initial_asset: int,
+    annual_pension_deposit: int,
+    annual_irp_deposit: int,
+    invest_years: int,
+    expected_returns: dict,
+    tax_credit_rate: float,
+    reinvest_tax_credit: bool,
 ):
-    # 1) 계좌별 가중평균 기대수익률 산출
     pension_return = sum(
-        cfg["weight"] * expected_returns.get(cfg["key"], cfg["default_return"])
+        cfg["weight"] * expected_returns.get(cfg["key"], 5.0)
         for cfg in ETF_CONFIG["연금저축"]
     )
     irp_return = sum(
-        cfg["weight"] * expected_returns.get(cfg["key"], cfg["default_return"])
+        cfg["weight"] * expected_returns.get(cfg["key"], 5.0)
         for cfg in ETF_CONFIG["IRP"]
     )
 
     total_deposit = annual_pension_deposit + annual_irp_deposit
 
-    # 통합 가중평균 수익률
     if total_deposit > 0:
         overall_return = (
-                                 (annual_pension_deposit * pension_return) + (annual_irp_deposit * irp_return)
-                         ) / total_deposit
+            (annual_pension_deposit * pension_return) + (annual_irp_deposit * irp_return)
+        ) / total_deposit
     else:
         overall_return = (pension_return + irp_return) / 2.0
 
-    # 2) 연도별 복리 계산
     records = []
     current_asset = float(initial_asset)
     total_principal = float(initial_asset)
@@ -77,7 +106,6 @@ def calculate_simulation(
     rate_decimal = overall_return / 100.0
 
     for year in range(1, invest_years + 1):
-        # 세액공제 대상액 (연금저축 최대 600만 + IRP 포함 최대 900만)
         eligible_tax_deposit = min(annual_pension_deposit, 6_000_000) + min(
             annual_irp_deposit, max(0, 9_000_000 - min(annual_pension_deposit, 6_000_000))
         )
@@ -89,22 +117,23 @@ def calculate_simulation(
         total_principal += year_deposit
         total_tax_reinvested += reinvest_amount
 
-        # 운용 자산 = (전년도 자산 + 당해 원금 납입 + 세액공제 환급 재투자금) * (1 + 수익률)
         invested_base = current_asset + year_deposit + reinvest_amount
         investment_profit = invested_base * rate_decimal
         current_asset = invested_base + investment_profit
 
-        records.append({
-            "경과년수": f"{year}년차",
-            "총 누적자산": int(current_asset),
-            "누적 원금": int(total_principal),
-            "누적 투자수익": int(current_asset - total_principal - total_tax_reinvested),
-            "누적 세액환급 재투자": int(total_tax_reinvested),
-            "당해 세액공제 환급액": int(tax_refund),
-        })
+        records.append(
+            {
+                "연차": year,
+                "경과년수": f"{year}년차",
+                "총 누적자산": int(current_asset),
+                "누적 원금": int(total_principal),
+                "누적 투자수익": int(current_asset - total_principal - total_tax_reinvested),
+                "누적 세액환급 재투자": int(total_tax_reinvested),
+            }
+        )
 
     df_result = pd.DataFrame(records)
-    return df_result, overall_return, pension_return, irp_return
+    return df_result, overall_return
 
 
 # =========================================================
@@ -112,13 +141,14 @@ def calculate_simulation(
 # =========================================================
 
 def show_asset_simulation(user_id=None, cookies=None):
-    st.title("📈 연금 자산 성장 시뮬레이터 (5년 플랜)")
-    st.caption("연금저축(600만원) + IRP(300만원) 총 900만원 납입 포트폴리오 추정")
+    st.set_page_config(page_title="연금 자산 시뮬레이터", layout="wide")
+    st.title("📈 연금 자산 성장 시뮬레이터 (3가지 시나리오 비교)")
+    st.caption("보수적 / 중립적 / 공격적 기대수익률별 자산 성장 추이를 한눈에 비교합니다.")
 
     st.divider()
 
-    # --- 사이드바 설정 영역 ---
-    st.sidebar.header("⚙️ 시뮬레이션 설정")
+    # --- 사이드바: 기본 설정 ---
+    st.sidebar.header("⚙️ 기본 입력 설정")
 
     initial_asset = st.sidebar.number_input(
         "현재 보유 자산 총액 (원)", min_value=0, value=0, step=1_000_000, format="%d"
@@ -138,91 +168,117 @@ def show_asset_simulation(user_id=None, cookies=None):
     tax_rate_option = st.sidebar.radio(
         "총급여 기준 세액공제율",
         options=[16.5, 13.2],
-        format_func=lambda x: f"{x}% (총급여 {'5,500만원 이하' if x == 16.5 else '5,500만원 초과'})",
+        format_func=lambda x: f"{x}% ({'5,500만 이하' if x == 16.5 else '5,500만 초과'})",
     )
     reinvest_tax = st.sidebar.checkbox("세액공제 환급금 매년 재투자하기", value=True)
 
-    # --- 포트폴리오 가중치 및 기대수익률 설정 ---
-    with st.expander("📊 종목별 기대 수익률 조정 (클릭하여 개별 수정 가능)", expanded=True):
-        col_p, col_i = st.columns(2)
+    # --- 메인 1: 시나리오별 기대수익률 설정 (Tabs) ---
+    st.subheader("🎯 시나리오별 종목 기대수익률 설정")
+    scenarios = ["보수적", "중립적", "공격적"]
+    scenario_tabs = st.tabs([f"🛡️ 보수적", f"⚖️ 중립적", f"🚀 공격적"])
 
-        expected_returns = {}
-        with col_p:
-            st.markdown("### 🟢 연금저축 계좌 (연 600만 원)")
-            for cfg in ETF_CONFIG["연금저축"]:
-                st.write(f"• **{cfg['name']}** ({int(cfg['weight'] * 100)}% / 연 {money_sim(cfg['annual_amount'])})")
-                expected_returns[cfg["key"]] = st.number_input(
-                    f"{cfg['name']} 기대수익률(%)",
-                    min_value=-10.0,
-                    max_value=30.0,
-                    value=cfg["default_return"],
-                    step=0.5,
-                    key=f"ret_{cfg['key']}",
-                )
+    scenario_returns = {}
 
-        with col_i:
-            st.markdown("### 🔵 IRP 계좌 (연 300만 원)")
-            for cfg in ETF_CONFIG["IRP"]:
-                st.write(f"• **{cfg['name']}** ({int(cfg['weight'] * 100)}% / 연 {money_sim(cfg['annual_amount'])})")
-                expected_returns[cfg["key"]] = st.number_input(
-                    f"{cfg['name']} 기대수익률(%)",
-                    min_value=-10.0,
-                    max_value=30.0,
-                    value=cfg["default_return"],
-                    step=0.5,
-                    key=f"ret_{cfg['key']}",
-                )
+    for idx, sc_name in enumerate(scenarios):
+        with scenario_tabs[idx]:
+            col_p, col_i = st.columns(2)
+            returns_dict = {}
 
-    # --- 연산 진행 ---
-    df_result, overall_ret, pension_ret, irp_ret = calculate_simulation(
-        initial_asset=initial_asset,
-        annual_pension_deposit=annual_pension,
-        annual_irp_deposit=annual_irp,
-        invest_years=invest_years,
-        expected_returns=expected_returns,
-        tax_credit_rate=tax_rate_option,
-        reinvest_tax_credit=reinvest_tax,
-    )
+            with col_p:
+                st.markdown("##### 🟢 연금저축 계좌")
+                for cfg in ETF_CONFIG["연금저축"]:
+                    returns_dict[cfg["key"]] = st.number_input(
+                        f"{cfg['name']} (%)",
+                        min_value=-10.0,
+                        max_value=30.0,
+                        value=cfg["returns"][sc_name],
+                        step=0.5,
+                        key=f"{sc_name}_{cfg['key']}",
+                    )
 
-    final_row = df_result.iloc[-1]
-    final_asset = final_row["총 누적자산"]
-    final_principal = final_row["누적 원금"]
-    final_profit = final_row["누적 투자수익"]
-    final_tax_reinvested = final_row["누적 세액환급 재투자"]
-    annual_tax_refund = (annual_pension + annual_irp) * (tax_rate_option / 100.0)
+            with col_i:
+                st.markdown("##### 🔵 IRP 계좌")
+                for cfg in ETF_CONFIG["IRP"]:
+                    returns_dict[cfg["key"]] = st.number_input(
+                        f"{cfg['name']} (%)",
+                        min_value=-10.0,
+                        max_value=30.0,
+                        value=cfg["returns"][sc_name],
+                        step=0.5,
+                        key=f"{sc_name}_{cfg['key']}",
+                    )
 
-    # --- 요약 카드 출력 ---
-    st.subheader(f"🎯 {invest_years}년 납입 후 시뮬레이션 결과 요약")
-    m1, m2, m3, m4 = st.columns(4)
-    m1.metric("최종 예상 총자산", money_sim(final_asset))
-    m2.metric("총 투입 원금", money_sim(final_principal))
-    m3.metric("순 투자 수익", money_sim(final_profit))
-    m4.metric("통합 가중평균 수익률", f"{overall_ret:.2f}% / 년")
+            scenario_returns[sc_name] = returns_dict
 
-    st.info(
-        f"💡 **포트폴리오 수익률 분석**\n"
-        f"* 연금저축 가중평균 수익률: **{pension_ret:.2f}%** | IRP 가중평균 수익률: **{irp_ret:.2f}%**\n"
-        f"* 매년 발생하는 세액공제 환급액: **{money_sim(annual_tax_refund)}** "
-        f"({invest_years}년간 총 {money_sim(final_tax_reinvested)} 재투자 반영됨)"
-    )
+    # --- 계산 실행 ---
+    sim_results = {}
+    overall_returns = {}
+
+    for sc_name in scenarios:
+        df_res, ret = calculate_simulation(
+            initial_asset=initial_asset,
+            annual_pension_deposit=annual_pension,
+            annual_irp_deposit=annual_irp,
+            invest_years=invest_years,
+            expected_returns=scenario_returns[sc_name],
+            tax_credit_rate=tax_rate_option,
+            reinvest_tax_credit=reinvest_tax,
+        )
+        sim_results[sc_name] = df_res
+        overall_returns[sc_name] = ret
 
     st.divider()
 
-    # --- 자산 성장 시각화 차트 ---
-    st.subheader("📈 연도별 자산 누적 추이")
-    chart_data = df_result.set_index("경과년수")[
-        ["누적 원금", "누적 세액환급 재투자", "누적 투자수익"]
-    ]
-    st.bar_chart(chart_data, use_container_width=True)
+    # --- 메인 2: 시나리오 비교 요약 카드 ---
+    st.subheader(f"📊 {invest_years}년 후 시나리오별 예상 성과 비교")
+
+    c1, c2, c3 = st.columns(3)
+    card_cols = [c1, c2, c3]
+    card_icons = ["🛡️", "⚖️", "🚀"]
+
+    for idx, sc_name in enumerate(scenarios):
+        df_sc = sim_results[sc_name]
+        final_row = df_sc.iloc[-1]
+        final_asset = final_row["총 누적자산"]
+        final_profit = final_row["누적 투자수익"]
+        ret = overall_returns[sc_name]
+
+        with card_cols[idx]:
+            st.markdown(f"### {card_icons[idx]} {sc_name} 플랜")
+            st.metric("가중평균 수익률", f"연 {ret:.2f}%")
+            st.metric("최종 예상 자산", money_sim(final_asset))
+            st.metric("순 투자 수익", money_sim(final_profit))
 
     st.divider()
 
-    # --- 연도별 상세 데이터표 ---
-    with st.expander("📋 연도별 상세 데이터 확인", expanded=True):
-        formatted_df = df_result.copy()
-        for col in ["총 누적자산", "누적 원금", "누적 투자수익", "누적 세액환급 재투자", "당해 세액공제 환급액"]:
-            formatted_df[col] = formatted_df[col].apply(lambda x: f"{x:,}원")
-        st.dataframe(formatted_df, use_container_width=True, hide_index=True)
+    # --- 메인 3: 통합 자산 성장 추이 비교 차트 ---
+    st.subheader("📈 연도별 자산 성장 추이 비교")
+
+    # 차트용 데이터 재구성 (경과년수 x 시나리오별 총자산)
+    chart_df = pd.DataFrame({"경과년수": sim_results["중립적"]["경과년수"]})
+    for sc_name in scenarios:
+        chart_df[f"{sc_name} 자산"] = sim_results[sc_name]["총 누적자산"]
+    chart_df["투입 원금"] = sim_results["중립적"]["누적 원금"]
+
+    chart_df = chart_df.set_index("경과년수")
+    st.line_chart(chart_df)
+
+    st.divider()
+
+    # --- 메인 4: 연도별 상세 비교 데이터표 ---
+    with st.expander("📋 연도별 상세 자산 비교 데이터 보기", expanded=False):
+        table_df = pd.DataFrame({"경과년수": sim_results["중립적"]["경과년수"]})
+        table_df["누적 원금"] = sim_results["중립적"]["누적 원금"].apply(money_sim)
+
+        for sc_name in scenarios:
+            table_df[f"{sc_name} (자산)"] = sim_results[sc_name]["총 누적자산"].apply(
+                money_sim
+            )
+            table_df[f"{sc_name} (수익)"] = sim_results[sc_name]["누적 투자수익"].apply(
+                money_sim
+            )
+
+        st.dataframe(table_df, use_container_width=True, hide_index=True)
 
 
 if __name__ == "__main__":

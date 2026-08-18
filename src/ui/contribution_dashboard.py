@@ -26,6 +26,11 @@ ETF_CONFIG = {
         {"key": "i_cover_call", "name": "KODEX 200타겟위클리커버드콜", "target": 1_200_000, "weight": 0.40},
         {"key": "i_bond", "name": "KODEX 단기채권PLUS", "target": 900_000, "weight": 0.30},
     ],
+    "ISA": [
+        {"key": "isa_sp500", "name": "TIGER 미국S&P500", "target": 1_500_000, "weight": 0.50},
+        {"key": "isa_nasdaq", "name": "KODEX 미국나스닥100TR", "target": 900_000, "weight": 0.30},
+        {"key": "isa_semicon", "name": "TIGER 미국반도체FactSet", "target": 600_000, "weight": 0.20},
+    ],
 }
 
 
@@ -56,7 +61,7 @@ def _default_monthly_data() -> dict:
 def _default_yearly_data() -> dict:
     yearly_data = {}
     for year in YEARS:
-        start_month = 8 if year == 2026 else 1
+        start_month = 9 if year == 2026 else 1
         yearly_data[year] = {
             "start_month": start_month,
             "end_month": 12,
@@ -88,7 +93,7 @@ def _migrate_saved_plan(saved_plan: dict) -> dict:
 
     # 기존 단일연도 레거시 구조 대응
     if "monthly_data" in saved_plan and "start_month" in saved_plan:
-        yearly_data[2026]["start_month"] = saved_plan.get("start_month", 8)
+        yearly_data[2026]["start_month"] = saved_plan.get("start_month", 9)
         yearly_data[2026]["end_month"] = saved_plan.get("end_month", 12)
         legacy_data = saved_plan.get("monthly_data", {})
         for key, values in legacy_data.items():
@@ -140,7 +145,7 @@ def _get_actual_account_total(year: int, account: str) -> int:
 
 
 def _get_actual_total(year: int) -> int:
-    return _get_actual_account_total(year, "연금저축") + _get_actual_account_total(year, "IRP")
+    return sum(_get_actual_account_total(year, acc) for acc in ETF_CONFIG.keys())
 
 
 def _get_last_actual_month(year: int, etf_key: str, start_month: int, end_month: int):
@@ -202,9 +207,9 @@ def _get_auto_account_monthly_required(year: int, account: str, start_month: int
 
 
 def _get_auto_total_monthly_required(year: int, start_month: int, end_month: int) -> int:
-    return (
-            _get_auto_account_monthly_required(year, "연금저축", start_month, end_month)
-            + _get_auto_account_monthly_required(year, "IRP", start_month, end_month)
+    return sum(
+        _get_auto_account_monthly_required(year, acc, start_month, end_month)
+        for acc in ETF_CONFIG.keys()
     )
 
 
@@ -275,7 +280,7 @@ def _update_monthly_data_from_editor(year: int, account: str, edited_df: pd.Data
 
 def _render_account_editor_section(account: str, icon: str, target_desc: str, year: int, start_month: int,
                                    end_month: int):
-    """연금저축 / IRP 에디터 섹션 공통 렌더링 함수"""
+    """연금저축 / IRP / ISA 에디터 섹션 공통 렌더링 함수"""
     st.markdown(f"#### {icon} {account} ({target_desc})")
 
     df = create_account_df(account, year, start_month, end_month)
@@ -380,7 +385,7 @@ def _render_auto_schedule(year: int, start_month: int, end_month: int):
                 st.caption("납입 예정 금액이 없습니다.")
                 continue
 
-            for account in ["연금저축", "IRP"]:
+            for account in ["연금저축", "IRP", "ISA"]:
                 acc_items = [item for item in items if item["account"] == account]
                 if not acc_items:
                     continue
@@ -441,7 +446,7 @@ def _render_year_dashboard(year: int, user_id: str):
 
     st.divider()
 
-    # 월별 실제 납입액 입력 (중복 제거된 함수 적용)
+    # 월별 실제 납입액 입력
     st.subheader(f"💵 {year}년 계좌별 월별 실제 납입액 입력")
     st.caption("⚠️ 실제 납입이 완료된 금액만 입력하세요.")
 
@@ -451,22 +456,28 @@ def _render_year_dashboard(year: int, user_id: str):
     irp_target, irp_total = _render_account_editor_section(
         "IRP", "🔵", "연 목표: 3,000,000원", year, start_month, end_month
     )
+    isa_target, isa_total = _render_account_editor_section(
+        "ISA", "🟠", "연 목표: 3,000,000원", year, start_month, end_month
+    )
 
     # 전체 통계
-    actual_total = pension_total + irp_total
-    annual_target = pension_target + irp_target
+    actual_total = pension_total + irp_total + isa_total
+    annual_target = pension_target + irp_target + isa_target
     actual_remaining = max(annual_target - actual_total, 0)
     actual_monthly_req = _get_auto_total_monthly_required(year, start_month, end_month)
     actual_rate = (actual_total / annual_target * 100) if annual_target > 0 else 0
 
-    st.success(f"💰 **{year}년 실제 총 납입액: {money(actual_total)}** = 연금저축 {money(pension_total)} + IRP {money(irp_total)}")
+    st.success(
+        f"💰 **{year}년 실제 총 납입액: {money(actual_total)}** = "
+        f"연금저축 {money(pension_total)} + IRP {money(irp_total)} + ISA {money(isa_total)}"
+    )
     st.divider()
 
     # 저장 안내 플래그 확인 및 저장 알림 렌더링
     save_status_key = f"save_success_{year}"
     if st.session_state.get(save_status_key):
         st.success(f"✅ **{year}년 납입 계획이 성공적으로 저장되었습니다!**")
-        st.session_state[save_status_key] = False  # 일회성 표시 후 초기화
+        st.session_state[save_status_key] = False
 
     # 저장 버튼 및 로직
     save_col, _ = st.columns([1, 2])
@@ -501,12 +512,13 @@ def _render_year_dashboard(year: int, user_id: str):
 
     # 계좌/ETF별 남은 납입 계획 표
     st.subheader(f"📈 {year}년 계좌/ETF별 남은 납입 계획")
-    for account in ["연금저축", "IRP"]:
+    for account in ["연금저축", "IRP", "ISA"]:
         acc_target = sum(cfg["target"] for cfg in ETF_CONFIG[account])
         acc_current = _get_actual_account_total(year, account)
         acc_remaining = max(acc_target - acc_current, 0)
         acc_monthly_req = _get_auto_account_monthly_required(year, account, start_month, end_month)
-        icon = "🟢" if account == "연금저축" else "🔵"
+
+        icon = "🟢" if account == "연금저축" else ("🔵" if account == "IRP" else "🟠")
 
         st.markdown(f"### {icon} {account}")
         a1, a2, a3, a4 = st.columns(4)
@@ -529,8 +541,8 @@ def _render_year_dashboard(year: int, user_id: str):
 # =========================================================
 
 def show_pension_dashboard(user_id=None, cookies=None):
-    st.title("💰 통합 연금 납입 계획 (2026 ~ 2030)")
-    st.caption("연금저축 600만원 + IRP 300만원 = 연간 900만원 기준 납입 계획 관리")
+    st.title("💰 통합 자산 납입 계획 (2026 ~ 2030)")
+    st.caption("연금저축(600만) + IRP(300만) + ISA(300만) = 연간 1,200만원 기준 납입 계획 관리")
 
     # DB 로딩 및 세션 상태 관리
     loaded_user_id = st.session_state.get("loaded_user_id")
@@ -541,20 +553,24 @@ def show_pension_dashboard(user_id=None, cookies=None):
 
         # 에디터 관련 세션 상태 초기화
         for year in YEARS:
-            st.session_state.pop(f"editor_pension_{year}", None)
-            st.session_state.pop(f"editor_irp_{year}", None)
+            st.session_state.pop(f"editor_연금저축_{year}", None)
+            st.session_state.pop(f"editor_IRP_{year}", None)
+            st.session_state.pop(f"editor_ISA_{year}", None)
             st.session_state.pop(f"start_month_{year}", None)
             st.session_state.pop(f"end_month_{year}", None)
 
     if "yearly_data" not in st.session_state:
         st.session_state["yearly_data"] = _default_yearly_data()
 
-    # 5개년 요약
-    st.subheader("🗓️ 5개년(2026~2030) 통합 요약")
-    five_target = 9_000_000 * len(YEARS)
+    # 5개년 총 연간 목표액 (연금저축 600만 + IRP 300만 + ISA 300만 = 1,200만원/년)
+    annual_target_all = sum(sum(cfg["target"] for cfg in ETF_CONFIG[acc]) for acc in ETF_CONFIG)
+    five_target = annual_target_all * len(YEARS)
     five_actual = sum(_get_actual_total(year) for year in YEARS)
     five_remaining = max(five_target - five_actual, 0)
     five_rate = (five_actual / five_target * 100) if five_target > 0 else 0
+
+    # 5개년 요약
+    st.subheader("🗓️ 5개년(2026~2030) 통합 요약")
 
     s1, s2, s3, s4 = st.columns(4)
     s1.metric("5개년 총 목표", money(five_target))

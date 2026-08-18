@@ -12,7 +12,7 @@ DEFAULT_START_END = {
     2026: (9, 12),
 }
 
-# 기본 세팅값 (ETF별 1~12월 0원 배열)
+# 기본 세팅값 (ETF별 1~12월 0원 배열) - ISA 항목 추가
 DEFAULT_MONTHLY_DATA = {
     "p_sp500": [0] * 12,
     "p_nasdaq": [0] * 12,
@@ -20,6 +20,9 @@ DEFAULT_MONTHLY_DATA = {
     "i_high_div": [0] * 12,
     "i_cover_call": [0] * 12,
     "i_bond": [0] * 12,
+    "isa_sp500": [0] * 12,
+    "isa_nasdaq": [0] * 12,
+    "isa_semicon": [0] * 12,
 }
 
 
@@ -41,7 +44,7 @@ def _default_yearly_plan() -> Dict[str, Any]:
 
 
 def get_user_plan(user_id: int) -> Dict[str, Any]:
-    """사용자의 연도별(2026~2030) 연금 납입 플랜을 DB에서 조회합니다.
+    """사용자의 연도별(2026~2030) 연금 및 ISA 납입 플랜을 DB에서 조회합니다.
 
     반환 형태: {"2026": {"start_month":.., "end_month":.., "monthly_data": {...}}, "2027": {...}, ...}
     데이터가 없는 연도는 기본값으로 채워서 반환하고, 조회/파싱 오류 시 전체 기본값을 반환합니다.
@@ -72,10 +75,15 @@ def get_user_plan(user_id: int) -> Dict[str, Any]:
             except (TypeError, json.JSONDecodeError):
                 monthly_data = _default_monthly_data()
 
+            # 기본 키 구조와 DB에서 로드된 monthly_data 병합 (새로 추가된 ISA 키 누락 방지)
+            merged_monthly_data = _default_monthly_data()
+            if isinstance(monthly_data, dict):
+                merged_monthly_data.update(monthly_data)
+
             plan[year_key] = {
                 "start_month": row["start_month"],
                 "end_month": row["end_month"],
-                "monthly_data": monthly_data,
+                "monthly_data": merged_monthly_data,
             }
 
         return plan
@@ -88,7 +96,7 @@ def get_user_plan(user_id: int) -> Dict[str, Any]:
 
 
 def save_user_plan(user_id: int, plan_data: Dict[str, Any]) -> bool:
-    """사용자의 연도별 연금 납입 플랜을 DB에 저장/업데이트(Upsert)합니다.
+    """사용자의 연도별 연금 및 ISA 납입 플랜을 DB에 저장/업데이트(Upsert)합니다.
 
     plan_data 형태: {"2026": {"start_month":.., "end_month":.., "monthly_data": {...}}, "2027": {...}, ...}
 
