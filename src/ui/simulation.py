@@ -52,6 +52,22 @@ ETF_CONFIG = {
             "returns": {"보수적": 2.5, "중립적": 3.2, "공격적": 4.0},
         },
     ],
+    "ISA": [
+        {
+            "key": "isa_dividend",
+            "name": "TIGER 미국배당다우존스",
+            "weight": 0.50,
+            "annual_amount": 1_500_000,
+            "returns": {"보수적": 5.5, "중립적": 7.5, "공격적": 9.0},
+        },
+        {
+            "key": "isa_sp500",
+            "name": "KODEX 미국S&P500",
+            "weight": 0.50,
+            "annual_amount": 1_500_000,
+            "returns": {"보수적": 6.0, "중립적": 8.0, "공격적": 10.0},
+        },
+    ],
 }
 
 
@@ -75,6 +91,7 @@ def calculate_simulation(
     initial_asset: int,
     annual_pension_deposit: int,
     annual_irp_deposit: int,
+    annual_isa_deposit: int,
     invest_years: int,
     expected_returns: dict,
     tax_credit_rate: float,
@@ -88,15 +105,21 @@ def calculate_simulation(
         cfg["weight"] * expected_returns.get(cfg["key"], 5.0)
         for cfg in ETF_CONFIG["IRP"]
     )
+    isa_return = sum(
+        cfg["weight"] * expected_returns.get(cfg["key"], 5.0)
+        for cfg in ETF_CONFIG["ISA"]
+    )
 
-    total_deposit = annual_pension_deposit + annual_irp_deposit
+    total_deposit = annual_pension_deposit + annual_irp_deposit + annual_isa_deposit
 
     if total_deposit > 0:
         overall_return = (
-            (annual_pension_deposit * pension_return) + (annual_irp_deposit * irp_return)
+            (annual_pension_deposit * pension_return)
+            + (annual_irp_deposit * irp_return)
+            + (annual_isa_deposit * isa_return)
         ) / total_deposit
     else:
-        overall_return = (pension_return + irp_return) / 2.0
+        overall_return = (pension_return + irp_return + isa_return) / 3.0
 
     records = []
     current_asset = float(initial_asset)
@@ -106,6 +129,7 @@ def calculate_simulation(
     rate_decimal = overall_return / 100.0
 
     for year in range(1, invest_years + 1):
+        # 세액공제는 연금저축(최대 600만) + IRP(합산 최대 900만) 기준 적용 (ISA 제외)
         eligible_tax_deposit = min(annual_pension_deposit, 6_000_000) + min(
             annual_irp_deposit, max(0, 9_000_000 - min(annual_pension_deposit, 6_000_000))
         )
@@ -141,8 +165,8 @@ def calculate_simulation(
 # =========================================================
 
 def show_asset_simulation(user_id=None, cookies=None):
-    st.set_page_config(page_title="연금 자산 시뮬레이터", layout="wide")
-    st.title("📈 연금 자산 성장 시뮬레이터 (3가지 시나리오 비교)")
+    st.set_page_config(page_title="연금 및 ISA 자산 시뮬레이터", layout="wide")
+    st.title("📈 통합 자산 성장 시뮬레이터 (연금저축 + IRP + ISA)")
     st.caption("보수적 / 중립적 / 공격적 기대수익률별 자산 성장 추이를 한눈에 비교합니다.")
 
     st.divider()
@@ -161,10 +185,13 @@ def show_asset_simulation(user_id=None, cookies=None):
     annual_irp = st.sidebar.number_input(
         "IRP 연 납입액", min_value=0, max_value=3_000_000, value=3_000_000, step=500_000
     )
+    annual_isa = st.sidebar.number_input(
+        "ISA 연 납입액", min_value=0, max_value=20_000_000, value=3_000_000, step=500_000
+    )
 
     invest_years = st.sidebar.slider("투자 기간 (년)", min_value=1, max_value=30, value=5, step=1)
 
-    st.sidebar.subheader("🎁 세액공제 설정")
+    st.sidebar.subheader("🎁 세액공제 설정 (연금/IRP)")
     tax_rate_option = st.sidebar.radio(
         "총급여 기준 세액공제율",
         options=[16.5, 13.2],
@@ -181,7 +208,7 @@ def show_asset_simulation(user_id=None, cookies=None):
 
     for idx, sc_name in enumerate(scenarios):
         with scenario_tabs[idx]:
-            col_p, col_i = st.columns(2)
+            col_p, col_i, col_isa = st.columns(3)
             returns_dict = {}
 
             with col_p:
@@ -208,6 +235,18 @@ def show_asset_simulation(user_id=None, cookies=None):
                         key=f"{sc_name}_{cfg['key']}",
                     )
 
+            with col_isa:
+                st.markdown("##### 🟠 ISA 계좌")
+                for cfg in ETF_CONFIG["ISA"]:
+                    returns_dict[cfg["key"]] = st.number_input(
+                        f"{cfg['name']} (%)",
+                        min_value=-10.0,
+                        max_value=30.0,
+                        value=cfg["returns"][sc_name],
+                        step=0.5,
+                        key=f"{sc_name}_{cfg['key']}",
+                    )
+
             scenario_returns[sc_name] = returns_dict
 
     # --- 계산 실행 ---
@@ -219,6 +258,7 @@ def show_asset_simulation(user_id=None, cookies=None):
             initial_asset=initial_asset,
             annual_pension_deposit=annual_pension,
             annual_irp_deposit=annual_irp,
+            annual_isa_deposit=annual_isa,
             invest_years=invest_years,
             expected_returns=scenario_returns[sc_name],
             tax_credit_rate=tax_rate_option,
@@ -254,7 +294,6 @@ def show_asset_simulation(user_id=None, cookies=None):
     # --- 메인 3: 통합 자산 성장 추이 비교 차트 ---
     st.subheader("📈 연도별 자산 성장 추이 비교")
 
-    # 차트용 데이터 재구성 (경과년수 x 시나리오별 총자산)
     chart_df = pd.DataFrame({"경과년수": sim_results["중립적"]["경과년수"]})
     for sc_name in scenarios:
         chart_df[f"{sc_name} 자산"] = sim_results[sc_name]["총 누적자산"]

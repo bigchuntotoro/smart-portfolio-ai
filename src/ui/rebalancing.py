@@ -8,7 +8,7 @@ YEARS = [2026, 2027, 2028, 2029, 2030]
 CURRENT_YEAR = date.today().year
 CURRENT_MONTH = date.today().month
 
-# 종목별 연간 목표금액 정보 추가 (KODEX 단기채권PLUS: 900,000원)
+# 종목별 연간 목표금액 정보 (ISA 계좌 연간 납입액 3,000,000원 반영)
 REBALANCING_CONFIG = {
     "연금저축": [
         {"key": "p_sp500", "name": "TIGER 미국S&P500", "target_weight": 0.25, "annual_target": 1_500_000},
@@ -19,6 +19,10 @@ REBALANCING_CONFIG = {
         {"key": "i_high_div", "name": "KODEX 주주환원고배당주", "target_weight": 0.30, "annual_target": 900_000},
         {"key": "i_cover_call", "name": "KODEX 200타겟위클리커버드콜", "target_weight": 0.40, "annual_target": 1_200_000},
         {"key": "i_bond", "name": "KODEX 단기채권PLUS", "target_weight": 0.30, "annual_target": 900_000},
+    ],
+    "ISA": [
+        {"key": "isa_dividend", "name": "TIGER 미국배당다우존스", "target_weight": 0.50, "annual_target": 1_500_000},
+        {"key": "isa_sp500", "name": "KODEX 미국S&P500", "target_weight": 0.50, "annual_target": 1_500_000},
     ],
 }
 
@@ -75,8 +79,9 @@ def render_account_portfolio(account_name: str, config_list: list):
 
     current_values = {}
     st.markdown("**종목별 현재 평가 금액 (납입 완료 금액 자동 입력)**")
-    c1, c2, c3 = st.columns(3)
-    cols = [c1, c2, c3]
+
+    num_items = len(config_list)
+    cols = st.columns(num_items)
 
     for idx, cfg in enumerate(config_list):
         item_key = cfg["key"]
@@ -85,7 +90,7 @@ def render_account_portfolio(account_name: str, config_list: list):
         def update_val(k=item_key):
             st.session_state["rebalancing_data"][k] = st.session_state[f"input_{k}"]
 
-        with cols[idx % 3]:
+        with cols[idx]:
             val = st.number_input(
                 f"{cfg['name']}\n(목표 {int(cfg['target_weight'] * 100)}%)",
                 min_value=0,
@@ -97,7 +102,7 @@ def render_account_portfolio(account_name: str, config_list: list):
             )
             current_values[item_key] = val
 
-            # KODEX 단기채권PLUS 또는 기타 종목 연 목표 완납 상태 안내
+            # 종목 연 목표 완납 상태 안내
             if annual_target > 0 and val >= annual_target:
                 st.caption("🎉 **올해 목표 완납 완료!**")
 
@@ -144,13 +149,16 @@ def show_rebalancing_dashboard(user_id=None, cookies=None):
     st.caption("이번 달 납입 완료 후 형성된 종목별 비중 현황을 확인합니다.")
     st.divider()
 
-    tab_pension, tab_irp = st.tabs(["🟢 연금저축 계좌", "🔵 IRP 계좌"])
+    tab_pension, tab_irp, tab_isa = st.tabs(["🟢 연금저축 계좌", "🔵 IRP 계좌", "🟠 ISA 계좌"])
 
     with tab_pension:
         render_account_portfolio("연금저축", REBALANCING_CONFIG["연금저축"])
 
     with tab_irp:
         render_account_portfolio("IRP", REBALANCING_CONFIG["IRP"])
+
+    with tab_isa:
+        render_account_portfolio("ISA", REBALANCING_CONFIG["ISA"])
 
 
 if __name__ == "__main__":
