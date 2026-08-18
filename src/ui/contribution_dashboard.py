@@ -462,7 +462,13 @@ def _render_year_dashboard(year: int, user_id: str):
     st.success(f"💰 **{year}년 실제 총 납입액: {money(actual_total)}** = 연금저축 {money(pension_total)} + IRP {money(irp_total)}")
     st.divider()
 
-    # 저장 버튼
+    # 저장 안내 플래그 확인 및 저장 알림 렌더링
+    save_status_key = f"save_success_{year}"
+    if st.session_state.get(save_status_key):
+        st.success(f"✅ **{year}년 납입 계획이 성공적으로 저장되었습니다!**")
+        st.session_state[save_status_key] = False  # 일회성 표시 후 초기화
+
+    # 저장 버튼 및 로직
     save_col, _ = st.columns([1, 2])
     with save_col:
         if st.button(f"💾 {year}년 납입 계획 저장하기", type="primary", use_container_width=True, key=f"save_button_{year}"):
@@ -470,9 +476,11 @@ def _render_year_dashboard(year: int, user_id: str):
                 st.error("❌ 로그인 정보가 없습니다.")
             else:
                 if save_user_plan(user_id, _build_save_payload()):
-                    st.success(f"✅ {year}년 납입 계획이 저장되었습니다.")
+                    st.toast(f"🎉 {year}년 납입 계획이 저장되었습니다!", icon="💾")
+                    st.session_state[save_status_key] = True
+                    st.rerun()
                 else:
-                    st.error("❌ DB 저장에 실패했습니다.")
+                    st.error("❌ DB 저장에 실패했습니다. 다시 시도해 주세요.")
 
     st.divider()
 
