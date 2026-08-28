@@ -13,7 +13,7 @@ pipeline {
             steps {
                 sh '''
                     mkdir -p ${DEPLOY_DIR}/data
-                    rsync -av --exclude='.venv' --exclude='data/users.db' --exclude='.git' ./ ${DEPLOY_DIR}/
+                    rsync -av --exclude='.venv' --exclude='venv' --exclude='data/users.db' --exclude='.git' ./ ${DEPLOY_DIR}/
                 '''
             }
         }
@@ -39,8 +39,8 @@ pipeline {
                         touch .env
                     fi
 
-                    pm2 describe smart-portfolio-ai > /dev/null 2>&1
-                    if [ $? -eq 0 ]; then
+                    # pm2 describe 실행 시 에러가 나더라도 sh 스크립트가 중단되지 않도록 || true 처리
+                    if pm2 describe smart-portfolio-ai > /dev/null 2>&1; then
                         echo "Existing process found. Reloading..."
                         pm2 restart smart-portfolio-ai
                     else
