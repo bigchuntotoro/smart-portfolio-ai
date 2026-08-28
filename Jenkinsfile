@@ -14,7 +14,8 @@ pipeline {
             steps {
                 sh '''
                     mkdir -p ${DEPLOY_DIR}/data
-                    rsync -av --exclude='.venv' --exclude='venv' --exclude='data/users.db' --exclude='.git' ./ ${DEPLOY_DIR}/
+                    # .env 파일이 rsync 동기화 과정에서 유실되지 않도록 제외 처리
+                    rsync -av --exclude='.venv' --exclude='venv' --exclude='.env' --exclude='data/users.db' --exclude='.git' ./ ${DEPLOY_DIR}/
                 '''
             }
         }
@@ -34,26 +35,30 @@ pipeline {
 
         stage('Deploy & Start with PM2') {
             steps {
-                sh '''
-                    cd ${DEPLOY_DIR}
-                    if [ ! -f ".env" ]; then
-                        touch .env
-                    fi
+                // Jenkins Credentials(ID: smart-portfolio-env) 주입
+                withCredentials([file(credentialsId: 'smart-portfolio-env', variable: 'SECRET_ENV')]) {
+                    sh '''
+                        cd ${DEPLOY_DIR}
 
-                    # 에러 상태인 기존 프로세스가 있다면 삭제 후 재등록
-                    if pm2 describe smart-portfolio-ai >/dev/null 2>&1; then
-                        echo "Cleaning up existing process..."
-                        pm2 delete smart-portfolio-ai
-                    fi
+                        # Credentials에서 가져온 .env 파일을 배포 경로로 복사 및 권한 설정
+                        cp ${SECRET_ENV} .env
+                        chmod 600 .env
 
-                    echo "Starting Streamlit app with Python interpreter..."
-                    pm2 start .venv/bin/streamlit \
-                      --name "smart-portfolio-ai" \
-                      --interpreter .venv/bin/python3 \
-                      -- run app.py --server.port=${APP_PORT} --server.address=0.0.0.0
+                        # 에러 상태이거나 기존 실행 중인 프로세스가 있다면 삭제 후 재등록
+                        if pm2 describe smart-portfolio-ai >/dev/null 2>&1; then
+                            echo "Cleaning up existing process..."
+                            pm2 delete smart-portfolio-ai
+                        fi
 
-                    pm2 save
-                '''
+                        echo "Starting Streamlit app with Python interpreter..."
+                        pm2 start .venv/bin/streamlit \
+                          --name "smart-portfolio-ai" \
+                          --interpreter .venv/bin/python3 \
+                          -- run app.py --server.port=${APP_PORT} --server.address=0.0.0.0
+
+                        pm2 save
+                    '''
+                }
             }
         }
     }
