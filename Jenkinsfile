@@ -6,6 +6,7 @@ pipeline {
         DEPLOY_DIR = '/home/totoro/Pythonproject/smart-portfolio-ai'
         PYTHON_BIN = 'python3'
         APP_PORT = '8501'
+        PATH = "/usr/local/bin:/usr/bin:/bin:${env.PATH}"
     }
 
     stages {
@@ -31,7 +32,7 @@ pipeline {
             }
         }
 
-        stage('Deploy & Restart') {
+        stage('Deploy & Start with PM2') {
             steps {
                 sh '''
                     cd ${DEPLOY_DIR}
@@ -39,15 +40,18 @@ pipeline {
                         touch .env
                     fi
 
-                    # pm2 describe 실행 시 에러가 나더라도 sh 스크립트가 중단되지 않도록 || true 처리
-                    if pm2 describe smart-portfolio-ai > /dev/null 2>&1; then
-                        echo "Existing process found. Reloading..."
+                    # PM2에 해당 서비스가 등록되어 있는지 확인
+                    if pm2 describe smart-portfolio-ai >/dev/null 2>&1; then
+                        echo "Existing process found. Restarting..."
                         pm2 restart smart-portfolio-ai
                     else
-                        echo "Starting new process..."
-                        pm2 start .venv/bin/streamlit --name "smart-portfolio-ai" -- run app.py --server.port=${APP_PORT} --server.address=0.0.0.0
+                        echo "Starting new PM2 process..."
+                        pm2 start .venv/bin/streamlit \
+                          --name "smart-portfolio-ai" \
+                          -- run app.py --server.port=${APP_PORT} --server.address=0.0.0.0
                     fi
-                    
+
+                    # 현재 PM2 프로세스 상태 저장 (부팅 시 자동 재시작 유지용)
                     pm2 save
                 '''
             }
@@ -56,7 +60,7 @@ pipeline {
 
     post {
         success {
-            echo 'Deployment successfully completed!'
+            echo 'Deployment successfully completed and PM2 process is running!'
         }
         failure {
             echo 'Deployment failed. Check Jenkins logs.'
