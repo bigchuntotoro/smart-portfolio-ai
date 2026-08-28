@@ -40,18 +40,18 @@ pipeline {
                         touch .env
                     fi
 
-                    # PM2에 해당 서비스가 등록되어 있는지 확인
+                    # 에러 상태인 기존 프로세스가 있다면 삭제 후 재등록
                     if pm2 describe smart-portfolio-ai >/dev/null 2>&1; then
-                        echo "Existing process found. Restarting..."
-                        pm2 restart smart-portfolio-ai
-                    else
-                        echo "Starting new PM2 process..."
-                        pm2 start .venv/bin/streamlit \
-                          --name "smart-portfolio-ai" \
-                          -- run app.py --server.port=${APP_PORT} --server.address=0.0.0.0
+                        echo "Cleaning up existing process..."
+                        pm2 delete smart-portfolio-ai
                     fi
 
-                    # 현재 PM2 프로세스 상태 저장 (부팅 시 자동 재시작 유지용)
+                    echo "Starting Streamlit app with Python interpreter..."
+                    pm2 start .venv/bin/streamlit \
+                      --name "smart-portfolio-ai" \
+                      --interpreter .venv/bin/python3 \
+                      -- run app.py --server.port=${APP_PORT} --server.address=0.0.0.0
+
                     pm2 save
                 '''
             }
