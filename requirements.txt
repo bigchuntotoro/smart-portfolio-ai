@@ -7,4 +7,3 @@ PyJWT
 bcrypt
 streamlit-cookies-controller
 plotly
-pymysql>=1.1.0
